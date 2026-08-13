@@ -1142,6 +1142,7 @@ function handleGenerateBundle($input) {
     unset($v);
 
 $bundle .= "# === VARIAVEIS ===\n";
+    $bundle .= "export NON_INTERACTIVE=true\n";
     foreach ($vars as $v) {
         if (in_array($v['type'], $skipExportTypes, true)) continue;
         if (in_array($v['name'], $skipExportNames, true)) continue;

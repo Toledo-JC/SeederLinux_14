@@ -34,6 +34,9 @@ CONFIG_FILE="/etc/seederlinux/config.env"
 # Variaveis sensiveis (VNC_PASSWORD_B64, ADMIN_USERNAME) ficam em
 # /etc/seederlinux/secrets.env, gravadas por seus respectivos scripts.
 # ============================================================
+NTP_SERVER="${NTP_SERVER#http://}"
+NTP_SERVER="${NTP_SERVER#https://}"
+
 cat > "$CONFIG_FILE" <<EOF
 # SeederLinux Lite - Configuracao Persistente
 # NAO EDITAR MANUALMENTE - gerado pelo core_config.sh

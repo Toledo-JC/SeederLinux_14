@@ -40,6 +40,11 @@ if [ -n "$ADMIN_PASSWORD_B64" ]; then
 fi
 unset ADMIN_PASSWORD_B64
 
+NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
+if [ "$NON_INTERACTIVE" = "true" ]; then
+    echo ">>> Modo não interativo ativado."
+fi
+
 echo ">>> Dominio: $DOMINIO"
 echo ">>> NetBIOS: $DOMINIO_NETBIOS"
 echo ">>> DC principal: $DC_IP"
@@ -196,7 +201,11 @@ echo ">>> ESTÁGIO 3: Decisão sobre ação necessária"
 case "$ESTADO" in
     INGRESSADO_SSSD|INGRESSADO_HIBRIDO)
         echo ">>> A máquina já está ingressada via SSSD."
-        read -p ">>> Deseja reingressar (remover e ingressar novamente)? (s/N): " REINGRESSAR
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            REINGRESSAR="n"
+        else
+            read -p ">>> Deseja reingressar (remover e ingressar novamente)? (s/N): " REINGRESSAR
+        fi
         if [[ "$REINGRESSAR" =~ ^[Ss]$ ]]; then
             echo ">>> Removendo ingresso existente..."
             realm leave "$DOMINIO" -U "$ADMIN_USERNAME" 2>/dev/null || true
@@ -210,7 +219,11 @@ case "$ESTADO" in
     INGRESSADO_WINBIND)
         echo ">>> A máquina está ingressada via Winbind (método legado)."
         echo ">>> Recomenda-se migrar para SSSD."
-        read -p ">>> Deseja migrar para SSSD (remover Winbind e ingressar via realm)? (S/n): " MIGRAR
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            MIGRAR="s"
+        else
+            read -p ">>> Deseja migrar para SSSD (remover Winbind e ingressar via realm)? (S/n): " MIGRAR
+        fi
         if [[ ! "$MIGRAR" =~ ^[Nn]$ ]]; then
             echo ">>> Removendo ingresso Winbind..."
             net ads leave -U "$ADMIN_USERNAME" 2>/dev/null || true
@@ -224,7 +237,11 @@ case "$ESTADO" in
     CORROMPIDO|PARCIAL)
         echo ">>> AVISO: Estado inconsistente detectado ($ESTADO)."
         echo ">>> Possíveis causas: keytab ausente, SSSD parado, ou ingresso parcial."
-        read -p ">>> Deseja reparar automaticamente? (S/n): " REPARAR
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            REPARAR="s"
+        else
+            read -p ">>> Deseja reparar automaticamente? (S/n): " REPARAR
+        fi
         if [[ ! "$REPARAR" =~ ^[Nn]$ ]]; then
             echo ">>> Executando limpeza completa..."
             realm leave "$DOMINIO" 2>/dev/null || true
@@ -323,10 +340,12 @@ EOF
         [ "$KINIT_OK" != "true" ] && echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME}@${DOMINIO_NETBIOS}" 2>/dev/null && KINIT_OK=true
         [ "$KINIT_OK" != "true" ] && echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME,,}@${REALM}" 2>/dev/null && KINIT_OK=true
         [ "$KINIT_OK" != "true" ] && echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME,,}@${DOMINIO,,}" 2>/dev/null && KINIT_OK=true
+    elif [ "$NON_INTERACTIVE" = "true" ]; then
+        echo ">>> ERRO: ADMIN_PASSWORD nao definido em modo nao interativo."
     fi
 
     # Modo interativo se pipe falhou
-    if [ "$KINIT_OK" != "true" ]; then
+    if [ "$KINIT_OK" != "true" ] && [ "$NON_INTERACTIVE" != "true" ]; then
         echo ">>> Não foi possível obter ticket automaticamente."
         echo ">>> Solicitando credenciais interativamente..."
         while [ "$KINIT_OK" != "true" ]; do
@@ -352,7 +371,11 @@ EOF
     if [ "$KINIT_OK" != "true" ]; then
         echo ">>> ERRO: Falha ao obter ticket Kerberos."
         echo ">>> Verifique as credenciais e conectividade com o DC."
-        exit 1
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            echo ">>> Modo não interativo: continuando sem pedir senha."
+        else
+            exit 1
+        fi
     fi
     echo ">>> Ticket Kerberos obtido com sucesso!"
 
@@ -403,7 +426,11 @@ EOF
 
     if [ "$JOIN_OK" != "true" ]; then
         echo ">>> ERRO: Falha ao ingressar no domínio com todos os métodos."
-        read -p ">>> Deseja continuar mesmo assim? (S/n): " CONTINUE
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            CONTINUE="s"
+        else
+            read -p ">>> Deseja continuar mesmo assim? (S/n): " CONTINUE
+        fi
         if [[ "$CONTINUE" =~ ^[Nn]$ ]]; then
             echo ">>> Instalação abortada pelo usuário."
             exit 1
@@ -591,11 +618,11 @@ if [ "$VALIDATION_OK" = "false" ]; then
     echo ""
     echo ">>> AVISO: Alguns testes de validação falharam."
     echo ">>> O ingresso pode não estar completamente funcional."
-    read -p ">>> Deseja continuar mesmo assim? (S/n): " CONTINUE
-    if [[ "$CONTINUE" =~ ^[Nn]$ ]]; then
-        echo ">>> Instalação abortada pelo usuário."
-        exit 1
-    fi
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            CONTINUE="s"
+        else
+            read -p ">>> Deseja continuar mesmo assim? (S/n): " CONTINUE
+        fi
 fi
 
 echo ""

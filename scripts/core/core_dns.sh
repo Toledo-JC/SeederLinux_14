@@ -31,6 +31,18 @@ OM_ACRONYM="{{OM_ACRONYM}}"
 NTP_SERVER="${NTP_SERVER#http://}"
 NTP_SERVER="${NTP_SERVER#https://}"
 
+NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
+
+if [ "$NON_INTERACTIVE" = "true" ]; then
+    CHANGE_HOST="n"
+else
+    echo ">>> Dominio: $DOMINIO"
+    echo ">>> DNS primario: $DNS_PRIMARIO"
+    echo ">>> DNS secundario: ${DNS_SECUNDARIO}"
+    echo ">>> NTP: $NTP_SERVER"
+    read -p ">>> Deseja alterar o hostname? (s/N): " CHANGE_HOST
+fi
+
 echo ">>> Dominio: $DOMINIO"
 echo ">>> DNS primario: $DNS_PRIMARIO"
 echo ">>> DNS secundario: ${DNS_SECUNDARIO}"
@@ -41,11 +53,19 @@ echo ">>> NTP: $NTP_SERVER"
 # ============================================================
 CURRENT_HOSTNAME=$(hostname)
 echo ">>> Hostname atual: $CURRENT_HOSTNAME"
-read -p ">>> Deseja alterar o hostname? (s/N): " CHANGE_HOST
+if [ "$NON_INTERACTIVE" = "true" ]; then
+    CHANGE_HOST="n"
+else
+    read -p ">>> Deseja alterar o hostname? (s/N): " CHANGE_HOST
+fi
 if [[ "$CHANGE_HOST" =~ ^[Ss]$ ]]; then
-    read -p ">>> Novo hostname: " NEW_HOSTNAME
-    hostnamectl set-hostname "$NEW_HOSTNAME"
-    echo ">>> Hostname alterado para: $NEW_HOSTNAME"
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        echo ">>> Modo não interativo: mantendo hostname atual."
+    else
+        read -p ">>> Novo hostname: " NEW_HOSTNAME
+        hostnamectl set-hostname "$NEW_HOSTNAME"
+        echo ">>> Hostname alterado para: $NEW_HOSTNAME"
+    fi
 fi
 
 HOSTNAME_SHORT=$(hostname | cut -d. -f1)
