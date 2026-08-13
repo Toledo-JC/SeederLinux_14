@@ -568,32 +568,73 @@
     <!-- Modal: Edit Script -->
     <div id="modal-edit-script" class="modal hidden">
         <div class="modal-backdrop" onclick="closeModal('modal-edit-script')"></div>
-        <div class="modal-dialog" style="max-width: 48rem;">
+        <div class="modal-dialog" style="max-width: 52rem;">
             <div class="modal-header">
-                <h3 class="modal-title">Editar Script</h3>
+                <h3 class="modal-title" id="edit-script-modal-title">Editar Script</h3>
                 <button class="modal-close" onclick="closeModal('modal-edit-script')">&times;</button>
             </div>
             <form id="edit-script-form" onsubmit="updateScript(event)">
                 <div class="modal-body">
                     <input type="hidden" id="edit-script-id">
                     <div class="form-group">
+                        <label class="form-label">Arquivo</label>
+                        <input type="text" id="edit-script-filename" class="form-input font-mono" readonly style="opacity: 0.85;">
+                    </div>
+                    <div class="form-group" id="edit-script-name-group">
                         <label class="form-label">Nome *</label>
                         <input type="text" id="edit-script-name" class="form-input" required>
                     </div>
-                    <div class="form-group">
+                    <div class="form-group" id="edit-script-description-group">
                         <label class="form-label">Descricao</label>
                         <input type="text" id="edit-script-description" class="form-input">
                     </div>
+                    <div class="form-group" id="edit-script-changelog-group" style="display: none;">
+                        <label class="form-label">Descricao da alteracao (changelog)</label>
+                        <input type="text" id="edit-script-changelog" class="form-input" placeholder="Ex.: Ajuste de timeout e tratamento de rede">
+                    </div>
+                    <div class="form-group" id="edit-script-scope-group" style="display: none;">
+                        <label class="form-label">Escopo da versao</label>
+                        <select id="edit-script-scope" class="form-input">
+                            <option value="gap_default">Padrão do GAP (todas as OMs)</option>
+                            <option value="om_specific">Especifica para esta OM</option>
+                        </select>
+                    </div>
                     <div class="form-group">
                         <label class="form-label">Conteudo</label>
-                        <textarea id="edit-script-content" class="form-input form-textarea font-mono" rows="12" style="background: #0a0f1a;"></textarea>
+                        <textarea id="edit-script-content" class="form-input form-textarea font-mono" rows="16" style="background: #0a0f1a; min-height: 340px;"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('modal-edit-script')">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
+                    <button type="submit" id="edit-script-submit-btn" class="btn btn-primary">Salvar</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal: Script History -->
+    <div id="modal-script-history" class="modal hidden">
+        <div class="modal-backdrop" onclick="closeModal('modal-script-history')"></div>
+        <div class="modal-dialog" style="max-width: 64rem;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="script-history-title">Historico de Versoes</h3>
+                <button class="modal-close" onclick="closeModal('modal-script-history')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="grid gap-4" style="grid-template-columns: 1.2fr 1fr;">
+                    <div>
+                        <div class="mb-3 text-sm font-semibold text-slate-300">Versoes</div>
+                        <div id="script-history-list" class="space-y-2"></div>
+                    </div>
+                    <div>
+                        <div class="mb-3 text-sm font-semibold text-slate-300">Conteudo</div>
+                        <textarea id="script-history-content" class="form-input form-textarea font-mono" rows="18" readonly style="background: #0a0f1a; min-height: 320px;"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('modal-script-history')">Fechar</button>
+            </div>
         </div>
     </div>
 

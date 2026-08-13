@@ -1425,12 +1425,50 @@ window.switchTab = switchTab;
 
 // ============ SCRIPTS ============
 
+function getScriptVersionLabel(versionType) {
+    const labels = {
+        factory: 'Fábrica',
+        gap_default: 'GAP Default',
+        om_specific: 'OM Específica'
+    };
+    return labels[versionType] || 'Fábrica';
+}
+
+async function getScriptVersionState(scriptId) {
+    try {
+        const res = await API.get('script-versions', { id: scriptId });
+        if (!res.success || !Array.isArray(res.data?.versions)) {
+            return { label: 'Fábrica', type: 'factory', versions: [] };
+        }
+
+        const versions = (res.data.versions || []).sort((a, b) => (Number(b.version_number) || 0) - (Number(a.version_number) || 0));
+        const activeGap = versions.find(v => v.version_type === 'gap_default' && v.is_active);
+        const activeOm = versions.find(v => v.version_type === 'om_specific' && v.is_active);
+
+        if (activeOm) {
+            return { label: 'OM Específica', type: 'om_specific', versions };
+        }
+        if (activeGap) {
+            return { label: 'GAP Default', type: 'gap_default', versions };
+        }
+        return { label: 'Fábrica', type: 'factory', versions };
+    } catch (error) {
+        return { label: 'Fábrica', type: 'factory', versions: [] };
+    }
+}
+
 async function loadAllScripts() {
     const res = await API.get('scripts');
     if (!res.success) return;
 
-    const core = res.data.filter(s => s.is_core);
-    const custom = res.data.filter(s => !s.is_core);
+    const scripts = res.data || [];
+    const core = scripts.filter(s => s.is_core);
+    const custom = scripts.filter(s => !s.is_core);
+
+    const coreWithState = await Promise.all(core.map(async (s) => ({
+        ...s,
+        versionState: await getScriptVersionState(s.id)
+    })));
 
     const el = document.getElementById('scripts-list');
     if (!el) return;
@@ -1438,17 +1476,35 @@ async function loadAllScripts() {
     el.innerHTML = `
         <div class="mb-6">
             <h4 class="text-sm font-semibold text-slate-400 uppercase mb-3">Scripts Core (${core.length})</h4>
-            <div class="space-y-2">
-                ${core.map(s => `
-                    <div class="p-4 bg-slate-900 rounded-lg border border-slate-700 flex justify-between items-center">
-                        <div>
-                            <span class="font-medium text-white">${Utils.escapeHtml(s.name)}</span>
-                            <span class="text-slate-500 text-sm ml-2">${Utils.escapeHtml(s.filename)}</span>
-                            <span class="ml-2 px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">Core</span>
-                        </div>
-                        <button onclick="viewScript(${s.id})" class="text-blue-400 hover:text-blue-300 text-sm">Visualizar</button>
-                    </div>
-                `).join('') || '<p class="text-slate-500 text-sm">Nenhum</p>'}
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>Descricao</th>
+                            <th>Ordem</th>
+                            <th>Versao</th>
+                            <th class="text-right">Acoes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${coreWithState.map((s) => `
+                            <tr>
+                                <td><div class="font-medium text-white">${Utils.escapeHtml(s.filename || s.name)}</div></td>
+                                <td>${Utils.escapeHtml(s.description || 'Sem descricao')}</td>
+                                <td>${Number(s.execution_order || 0)}</td>
+                                <td><span class="badge badge-${s.versionState.type === 'factory' ? 'info' : s.versionState.type === 'gap_default' ? 'warning' : 'success'}">${Utils.escapeHtml(s.versionState.label)}</span></td>
+                                <td class="text-right">
+                                    <div class="flex justify-end gap-2">
+                                        <button class="btn btn-secondary btn-sm" onclick="editScript(${s.id})">Editar</button>
+                                        <button class="btn btn-secondary btn-sm" onclick="openScriptHistory(${s.id}, '${Utils.escapeHtml(s.filename || s.name)}')">Histórico</button>
+                                        <button class="btn btn-danger btn-sm" onclick="resetScriptToFactory(${s.id})">Reverter para Fábrica</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `).join('') || '<tr><td colspan="5" class="text-slate-500 text-center py-4">Nenhum script core</td></tr>'}
+                    </tbody>
+                </table>
             </div>
         </div>
         <div>
@@ -1473,6 +1529,122 @@ async function loadAllScripts() {
             </div>
         </div>`;
 }
+
+async function openScriptHistory(scriptId, scriptName) {
+    try {
+        const res = await API.get('script-versions', { id: scriptId });
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao carregar histórico');
+            return;
+        }
+
+        const versions = res.data.versions || [];
+        const listEl = document.getElementById('script-history-list');
+        const contentEl = document.getElementById('script-history-content');
+        if (!listEl || !contentEl) return;
+
+        document.getElementById('script-history-title').textContent = `Histórico: ${scriptName}`;
+        if (!versions.length) {
+            listEl.innerHTML = '<p class="text-slate-500 text-sm">Nenhuma versão registrada.</p>';
+            contentEl.value = '';
+            openModal('modal-script-history');
+            return;
+        }
+
+        const ordered = [...versions].sort((a, b) => Number(b.version_number) - Number(a.version_number));
+        listEl.innerHTML = ordered.map(v => `
+            <div class="p-3 bg-slate-900 rounded border border-slate-700">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                    <div>
+                        <div class="font-medium text-white">v${Number(v.version_number || 0)} • ${Utils.escapeHtml(v.version_name || 'Versão')}</div>
+                        <div class="text-xs text-slate-400">${Utils.escapeHtml(v.created_at || '')} • ${Utils.escapeHtml(v.created_by_username || 'Sistema')}</div>
+                    </div>
+                    <span class="badge badge-${v.version_type === 'factory' ? 'info' : v.version_type === 'gap_default' ? 'warning' : 'success'}">${Utils.escapeHtml(getScriptVersionLabel(v.version_type))}</span>
+                </div>
+                <div class="text-xs text-slate-400 mb-2">${Utils.escapeHtml(v.changelog || 'Sem changelog')}</div>
+                <div class="flex gap-2">
+                    <button class="btn btn-secondary btn-sm" onclick="previewScriptVersion(${scriptId}, ${v.id})">Visualizar</button>
+                    ${v.version_type === 'factory' ? '' : `<button class="btn btn-primary btn-sm" onclick="activateScriptVersion(${scriptId}, ${v.id}, '${v.version_type}')">Ativar esta versão</button>`}
+                </div>
+            </div>
+        `).join('');
+
+        const latest = ordered[0];
+        if (latest) {
+            contentEl.value = latest.content || '';
+        }
+        openModal('modal-script-history');
+    } catch (error) {
+        Toast.error('Erro ao abrir histórico do script');
+    }
+}
+window.openScriptHistory = openScriptHistory;
+
+async function previewScriptVersion(scriptId, versionId) {
+    try {
+        const res = await API.get('script-versions', { id: scriptId });
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao carregar versão');
+            return;
+        }
+        const version = (res.data.versions || []).find(v => Number(v.id) === Number(versionId));
+        if (!version) {
+            Toast.error('Versão não encontrada');
+            return;
+        }
+        document.getElementById('script-history-content').value = version.content || '';
+    } catch (error) {
+        Toast.error('Erro ao visualizar versão');
+    }
+}
+window.previewScriptVersion = previewScriptVersion;
+
+async function activateScriptVersion(scriptId, versionId, versionType) {
+    try {
+        const payload = { script_id: Number(scriptId), version_id: Number(versionId) };
+        if (versionType === 'om_specific') {
+            payload.organization_id = currentOrgId;
+            const res = await API.post('set-om-version', payload);
+            if (!res.success) { Toast.error(res.error || 'Erro ao ativar versão da OM'); return; }
+            Toast.success('Versão da OM ativada');
+        } else {
+            const res = await API.post('set-gap-default', payload);
+            if (!res.success) { Toast.error(res.error || 'Erro ao ativar versão GAP'); return; }
+            Toast.success('Versão GAP ativada');
+        }
+        closeModal('modal-script-history');
+        loadAllScripts();
+    } catch (error) {
+        Toast.error('Erro ao ativar versão');
+    }
+}
+window.activateScriptVersion = activateScriptVersion;
+
+async function resetScriptToFactory(scriptId) {
+    if (!confirm('Deseja reverter este script para a versão de fábrica?')) return;
+
+    try {
+        const calls = [];
+        if (currentOrgId) {
+            calls.push(API.post('reset-to-factory', { script_id: Number(scriptId), organization_id: Number(currentOrgId) }));
+        }
+        if (currentUser && currentUser.role === 'admin_gap') {
+            calls.push(API.post('reset-to-factory', { script_id: Number(scriptId) }));
+        }
+
+        if (!calls.length) {
+            Toast.error('Não foi possível determinar o escopo de reversão');
+            return;
+        }
+
+        await Promise.all(calls);
+        Toast.success('Script revertido para a versão de fábrica');
+        loadAllScripts();
+    } catch (error) {
+        Toast.error('Erro ao reverter para fábrica');
+    }
+}
+window.resetScriptToFactory = resetScriptToFactory;
 
 async function loadOrgScripts(orgId) {
     if (!orgId) orgId = currentOrgId;
@@ -1538,15 +1710,82 @@ async function editScript(id) {
     const res = await API.get('script', { id });
     if (!res.success) { Toast.error(res.error); return; }
 
+    const isCore = Boolean(res.data.is_core);
     document.getElementById('edit-script-id').value = res.data.id;
-    document.getElementById('edit-script-name').value = res.data.name;
+    document.getElementById('edit-script-filename').value = res.data.filename || '';
+    document.getElementById('edit-script-name').value = res.data.name || '';
     document.getElementById('edit-script-description').value = res.data.description || '';
     document.getElementById('edit-script-content').value = res.data.content || '';
+    document.getElementById('edit-script-changelog').value = '';
+    document.getElementById('edit-script-scope').value = isCore ? 'om_specific' : 'gap_default';
+
+    const nameGroup = document.getElementById('edit-script-name-group');
+    const descGroup = document.getElementById('edit-script-description-group');
+    const changelogGroup = document.getElementById('edit-script-changelog-group');
+    const scopeGroup = document.getElementById('edit-script-scope-group');
+    const submitBtn = document.getElementById('edit-script-submit-btn');
+
+    if (isCore) {
+        document.getElementById('edit-script-modal-title').textContent = `Editar Script: ${res.data.filename || 'Core'}`;
+        nameGroup.style.display = 'none';
+        descGroup.style.display = 'none';
+        changelogGroup.style.display = 'block';
+        scopeGroup.style.display = 'block';
+        submitBtn.textContent = 'Salvar como nova versão';
+        document.getElementById('edit-script-form').onsubmit = saveScriptVersion;
+    } else {
+        document.getElementById('edit-script-modal-title').textContent = 'Editar Script';
+        nameGroup.style.display = 'block';
+        descGroup.style.display = 'block';
+        changelogGroup.style.display = 'none';
+        scopeGroup.style.display = 'none';
+        submitBtn.textContent = 'Salvar';
+        document.getElementById('edit-script-form').onsubmit = updateScript;
+    }
 
     closeModal('modal-view-script');
     openModal('modal-edit-script');
 }
 window.editScript = editScript;
+
+async function saveScriptVersion(event) {
+    event.preventDefault();
+    const scriptId = document.getElementById('edit-script-id').value;
+    const content = document.getElementById('edit-script-content').value;
+    const changelog = document.getElementById('edit-script-changelog').value.trim();
+    const scope = document.getElementById('edit-script-scope').value;
+
+    if (!scriptId || !content.trim()) {
+        Toast.error('Conteudo do script e obrigatorio');
+        return;
+    }
+
+    try {
+        const payload = {
+            script_id: Number(scriptId),
+            content,
+            changelog,
+            scope
+        };
+
+        if (scope === 'om_specific') {
+            payload.organization_id = Number(currentOrgId || 0);
+        }
+
+        const res = await API.post('script-version', payload);
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao salvar nova versão');
+            return;
+        }
+
+        Toast.success('Nova versão salva com sucesso');
+        closeModal('modal-edit-script');
+        loadAllScripts();
+    } catch (error) {
+        Toast.error('Erro ao salvar nova versão');
+    }
+}
+window.saveScriptVersion = saveScriptVersion;
 
 async function deleteScript(id) {
     if (!confirm('Tem certeza que deseja excluir? Esta acao nao pode ser desfeita.')) return;

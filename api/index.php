@@ -126,6 +126,12 @@ try {
             if ($method !== 'POST') jsonError('Method not allowed', 405);
             handleUploadScript();
             break;
+        case 'script-version':
+            requireAuth();
+            if ($method === 'POST') handleCreateScriptVersion($input);
+            elseif ($method === 'GET' && $id) handleGetScriptVersions($id);
+            else jsonError('Method not allowed', 405);
+            break;
 
         // Bundle
         case 'generate-bundle':
@@ -863,6 +869,96 @@ function handleUpdateScript($id, $input) {
 
     log_audit('UPDATE', 'scripts', $id, ['name' => $name]);
     jsonSuccess(null, 'Script atualizado');
+}
+
+function handleCreateScriptVersion($input) {
+    $scriptId = (int)($input['script_id'] ?? 0);
+    $content = $input['content'] ?? '';
+    $changelog = sanitizeInput($input['changelog'] ?? '');
+    $scope = sanitizeInput($input['scope'] ?? 'gap_default');
+    $orgId = isset($input['organization_id']) ? (int)$input['organization_id'] : null;
+
+    if (!$scriptId || empty($content)) {
+        jsonError('script_id e content obrigatorios', 400);
+    }
+
+    $script = Database::fetchOne("SELECT id, filename, is_core, organization_id FROM scripts WHERE id = ?", [$scriptId]);
+    if (!$script) jsonError('Script nao encontrado', 404);
+
+    if (!in_array($scope, ['gap_default', 'om_specific'], true)) {
+        jsonError('Escopo invalido', 400);
+    }
+
+    if ($scope === 'om_specific') {
+        $userOrgId = getUserOrgId();
+        if (($orgId === null || $orgId <= 0) && $userOrgId === null && !isAdminGap()) {
+            jsonError('Organizacao obrigatoria para esta versao', 400);
+        }
+        $orgId = $orgId ?: $userOrgId;
+        if ($userOrgId !== null && $userOrgId !== $orgId && !isAdminGap()) {
+            jsonError('Sem permissao', 403);
+        }
+    }
+
+    $lastVersion = Database::fetchOne(
+        "SELECT COALESCE(MAX(version_number), 0) AS max_v FROM script_versions WHERE script_id = ?",
+        [$scriptId]
+    );
+    $nextVersion = (int)$lastVersion['max_v'] + 1;
+    $versionName = $script['filename'] . ' - ' . ($scope === 'gap_default' ? 'GAP Default' : 'OM Especifica') . ' v' . $nextVersion;
+
+    if ($scope === 'gap_default') {
+        Database::execute(
+            "UPDATE script_versions SET is_active = false WHERE script_id = ? AND version_type = 'gap_default'",
+            [$scriptId]
+        );
+    } else {
+        $existing = Database::fetchOne(
+            "SELECT id FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+            [$orgId, $scriptId]
+        );
+        if ($existing) {
+            Database::execute(
+                "UPDATE om_script_versions SET version_id = ? WHERE organization_id = ? AND script_id = ?",
+                [$existing['id'], $orgId, $scriptId]
+            );
+        }
+    }
+
+    $userId = $_SESSION['user_id'] ?? null;
+    Database::execute(
+        "INSERT INTO script_versions (script_id, version_name, version_number, content, changelog, version_type, organization_id, is_active, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, true, ?)",
+        [$scriptId, $versionName, $nextVersion, $content, $changelog, $scope, $orgId, $userId]
+    );
+
+    $newVersionId = (int)Database::lastInsertId();
+
+    if ($scope === 'om_specific') {
+        $existing = Database::fetchOne(
+            "SELECT id FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+            [$orgId, $scriptId]
+        );
+        if ($existing) {
+            Database::execute(
+                "UPDATE om_script_versions SET version_id = ? WHERE organization_id = ? AND script_id = ?",
+                [$newVersionId, $orgId, $scriptId]
+            );
+        } else {
+            Database::execute(
+                "INSERT INTO om_script_versions (organization_id, script_id, version_id) VALUES (?, ?, ?)",
+                [$orgId, $scriptId, $newVersionId]
+            );
+        }
+    }
+
+    Database::execute(
+        "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [$newVersionId, $content, $scriptId]
+    );
+
+    log_audit('CREATE_VERSION', 'scripts', $scriptId, ['version_type' => $scope, 'version_number' => $nextVersion, 'organization_id' => $orgId]);
+    jsonSuccess(['version_id' => $newVersionId, 'version_number' => $nextVersion], 'Nova versao salva com sucesso');
 }
 
 function handleDeleteScript($id) {
