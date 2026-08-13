@@ -889,8 +889,8 @@ function handleCreateScriptVersion($input) {
         jsonError('Escopo invalido', 400);
     }
 
+    $userOrgId = getUserOrgId();
     if ($scope === 'om_specific') {
-        $userOrgId = getUserOrgId();
         if (($orgId === null || $orgId <= 0) && $userOrgId === null && !isAdminGap()) {
             jsonError('Organizacao obrigatoria para esta versao', 400);
         }
@@ -898,6 +898,8 @@ function handleCreateScriptVersion($input) {
         if ($userOrgId !== null && $userOrgId !== $orgId && !isAdminGap()) {
             jsonError('Sem permissao', 403);
         }
+    } elseif ($scope === 'gap_default' && !isAdminGap()) {
+        jsonError('Sem permissao para salvar versao GAP', 403);
     }
 
     $lastVersion = Database::fetchOne(
@@ -913,16 +915,10 @@ function handleCreateScriptVersion($input) {
             [$scriptId]
         );
     } else {
-        $existing = Database::fetchOne(
-            "SELECT id FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
-            [$orgId, $scriptId]
+        Database::execute(
+            "UPDATE script_versions SET is_active = false WHERE script_id = ? AND version_type = 'om_specific' AND organization_id = ?",
+            [$scriptId, $orgId]
         );
-        if ($existing) {
-            Database::execute(
-                "UPDATE om_script_versions SET version_id = ? WHERE organization_id = ? AND script_id = ?",
-                [$existing['id'], $orgId, $scriptId]
-            );
-        }
     }
 
     $userId = $_SESSION['user_id'] ?? null;
@@ -952,14 +948,28 @@ function handleCreateScriptVersion($input) {
         }
     }
 
+    $factoryLatest = Database::fetchOne(
+        "SELECT id, content FROM script_versions WHERE script_id = ? AND version_type = 'factory' ORDER BY version_number DESC LIMIT 1",
+        [$scriptId]
+    );
+    $currentContent = ($factoryLatest && $scope === 'gap_default' && empty($content)) ? $factoryLatest['content'] : $content;
+
     Database::execute(
         "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [$newVersionId, $content, $scriptId]
+        [$newVersionId, $currentContent, $scriptId]
     );
 
-    log_audit('CREATE_VERSION', 'scripts', $scriptId, ['version_type' => $scope, 'version_number' => $nextVersion, 'organization_id' => $orgId]);
+    log_audit('UPDATE', 'script_versions', $scriptId, [
+        'action' => 'save_' . $scope,
+        'version' => $nextVersion,
+        'scope' => $scope,
+        'organization_id' => $orgId,
+        'script_id' => $scriptId,
+        'author' => $_SESSION['username'] ?? 'system'
+    ]);
     jsonSuccess(['version_id' => $newVersionId, 'version_number' => $nextVersion], 'Nova versao salva com sucesso');
 }
+
 
 function handleDeleteScript($id) {
     $script = Database::fetchOne("SELECT id, is_core, organization_id, name FROM scripts WHERE id = ?", [$id]);
@@ -2202,24 +2212,27 @@ function handleSetGapDefault($input) {
     if (!$scriptId || !$versionId) jsonError('script_id e version_id obrigatorios', 400);
 
     $version = Database::fetchOne(
-        "SELECT id, version_type FROM script_versions WHERE id = ? AND script_id = ?",
+        "SELECT id, version_type, version_number, content FROM script_versions WHERE id = ? AND script_id = ?",
         [$versionId, $scriptId]
     );
     if (!$version) jsonError('Versao nao encontrada', 404);
 
-    // Deactivate any existing gap_default for this script
     Database::execute(
         "UPDATE script_versions SET is_active = false WHERE script_id = ? AND version_type = 'gap_default'",
         [$scriptId]
     );
 
-    // Mark the selected version as gap_default and active
     Database::execute(
         "UPDATE script_versions SET version_type = 'gap_default', is_active = true WHERE id = ?",
         [$versionId]
     );
 
-    log_audit('SET_GAP_DEFAULT', 'scripts', $scriptId, ['version_id' => $versionId]);
+    Database::execute(
+        "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [$versionId, $version['content'], $scriptId]
+    );
+
+    log_audit('UPDATE', 'script_versions', $scriptId, ['action' => 'activate_gap_default', 'version' => $version['version_number'], 'scope' => 'gap_default', 'script_id' => $scriptId, 'author' => $_SESSION['username'] ?? 'system']);
     jsonSuccess(null, 'Versao default do GAP definida');
 }
 
@@ -2236,12 +2249,11 @@ function handleSetOmVersion($input) {
     }
 
     $version = Database::fetchOne(
-        "SELECT id FROM script_versions WHERE id = ? AND script_id = ?",
+        "SELECT id, version_number, content FROM script_versions WHERE id = ? AND script_id = ?",
         [$versionId, $scriptId]
     );
     if (!$version) jsonError('Versao nao encontrada', 404);
 
-    // Upsert: update if exists, insert if not
     $existing = Database::fetchOne(
         "SELECT id FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
         [$orgId, $scriptId]
@@ -2258,7 +2270,12 @@ function handleSetOmVersion($input) {
         );
     }
 
-    log_audit('SET_OM_VERSION', 'scripts', $scriptId, ['organization_id' => $orgId, 'version_id' => $versionId]);
+    Database::execute(
+        "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [$versionId, $version['content'], $scriptId]
+    );
+
+    log_audit('UPDATE', 'script_versions', $scriptId, ['action' => 'activate_om_specific', 'version' => $version['version_number'], 'scope' => 'om_specific', 'organization_id' => $orgId, 'script_id' => $scriptId, 'author' => $_SESSION['username'] ?? 'system']);
     jsonSuccess(null, 'Versao da OM definida');
 }
 
@@ -2273,21 +2290,39 @@ function handleResetToFactory($input) {
         jsonError('Sem permissao', 403);
     }
 
+    $factoryVersion = Database::fetchOne(
+        "SELECT id, content, version_number FROM script_versions WHERE script_id = ? AND version_type = 'factory' ORDER BY version_number DESC LIMIT 1",
+        [$scriptId]
+    );
+    if (!$factoryVersion) {
+        jsonError('Nenhuma versao de fabrica encontrada para este script', 404);
+    }
+
     if ($orgId) {
-        // Remove OM-specific override
         Database::execute(
             "DELETE FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
             [$orgId, $scriptId]
         );
-        log_audit('RESET_FACTORY', 'scripts', $scriptId, ['organization_id' => $orgId]);
+        Database::execute(
+            "UPDATE script_versions SET is_active = false WHERE script_id = ? AND version_type = 'om_specific' AND organization_id = ?",
+            [$scriptId, $orgId]
+        );
+        Database::execute(
+            "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [$factoryVersion['id'], $factoryVersion['content'], $scriptId]
+        );
+        log_audit('UPDATE', 'script_versions', $scriptId, ['action' => 'revert_factory', 'scope' => 'om_specific', 'organization_id' => $orgId, 'version' => $factoryVersion['version_number'], 'script_id' => $scriptId, 'author' => $_SESSION['username'] ?? 'system']);
         jsonSuccess(null, 'OM revertida para versao de fabrica');
     } else {
-        // No org specified: deactivate any gap_default for this script
         Database::execute(
-            "UPDATE script_versions SET is_active = false WHERE script_id = ? AND version_type = 'gap_default'",
+            "UPDATE script_versions SET is_active = false WHERE script_id = ? AND version_type IN ('gap_default', 'om_specific')",
             [$scriptId]
         );
-        log_audit('RESET_FACTORY', 'scripts', $scriptId, ['cleared_gap_default' => true]);
+        Database::execute(
+            "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [$factoryVersion['id'], $factoryVersion['content'], $scriptId]
+        );
+        log_audit('UPDATE', 'script_versions', $scriptId, ['action' => 'revert_factory', 'scope' => 'gap_default', 'version' => $factoryVersion['version_number'], 'script_id' => $scriptId, 'author' => $_SESSION['username'] ?? 'system']);
         jsonSuccess(null, 'GAP revertido para versao de fabrica');
     }
 }

@@ -1496,7 +1496,7 @@ async function loadAllScripts() {
                                 <td><span class="badge badge-${s.versionState.type === 'factory' ? 'info' : s.versionState.type === 'gap_default' ? 'warning' : 'success'}">${Utils.escapeHtml(s.versionState.label)}</span></td>
                                 <td class="text-right">
                                     <div class="flex justify-end gap-2">
-                                        <button class="btn btn-secondary btn-sm" onclick="editScript(${s.id})">Editar</button>
+                                        <button class="btn btn-secondary btn-sm" onclick="editScript(${s.id}, 'gap_default')">Editar</button>
                                         <button class="btn btn-secondary btn-sm" onclick="openScriptHistory(${s.id}, '${Utils.escapeHtml(s.filename || s.name)}')">Histórico</button>
                                         <button class="btn btn-danger btn-sm" onclick="resetScriptToFactory(${s.id})">Reverter para Fábrica</button>
                                     </div>
@@ -1624,22 +1624,20 @@ async function resetScriptToFactory(scriptId) {
     if (!confirm('Deseja reverter este script para a versão de fábrica?')) return;
 
     try {
-        const calls = [];
+        const payload = { script_id: Number(scriptId) };
         if (currentOrgId) {
-            calls.push(API.post('reset-to-factory', { script_id: Number(scriptId), organization_id: Number(currentOrgId) }));
-        }
-        if (currentUser && currentUser.role === 'admin_gap') {
-            calls.push(API.post('reset-to-factory', { script_id: Number(scriptId) }));
+            payload.organization_id = Number(currentOrgId);
         }
 
-        if (!calls.length) {
-            Toast.error('Não foi possível determinar o escopo de reversão');
+        const res = await API.post('reset-to-factory', payload);
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao reverter para fábrica');
             return;
         }
 
-        await Promise.all(calls);
-        Toast.success('Script revertido para a versão de fábrica');
+        Toast.success(res.message || 'Script revertido para a versão de fábrica');
         loadAllScripts();
+        if (currentOrgId) loadOrgScripts(currentOrgId);
     } catch (error) {
         Toast.error('Erro ao reverter para fábrica');
     }
@@ -1669,7 +1667,10 @@ async function loadOrgScripts(orgId) {
                     ${s.is_core ? '<span class="ml-2 px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">Core</span>' : ''}
                 </div>
             </div>
-            <button onclick="viewScript(${s.id})" class="text-blue-400 hover:text-blue-300 text-sm">Ver</button>
+            <div class="flex gap-2">
+                <button onclick="viewScript(${s.id})" class="text-blue-400 hover:text-blue-300 text-sm">Ver</button>
+                <button onclick="editScript(${s.id}, 'om_specific')" class="text-amber-400 hover:text-amber-300 text-sm">Editar</button>
+            </div>
         </div>
     `).join('') || '<p class="text-slate-500 text-sm">Nenhum script</p>';
 }
@@ -1683,6 +1684,8 @@ function switchScriptTab(type) {
     });
     loadOrgScripts(currentOrgId);
 }
+window.switchScriptTab = switchScriptTab;
+
 window.switchScriptTab = switchScriptTab;
 
 async function viewScript(id) {
@@ -1706,18 +1709,23 @@ async function viewScript(id) {
 }
 window.viewScript = viewScript;
 
-async function editScript(id) {
+async function editScript(id, scopeOverride = null) {
     const res = await API.get('script', { id });
     if (!res.success) { Toast.error(res.error); return; }
 
     const isCore = Boolean(res.data.is_core);
+    const contextScope = scopeOverride || (currentUser && currentUser.role === 'admin_gap' ? 'gap_default' : 'om_specific');
+    const scopeLabel = contextScope === 'gap_default' ? 'GAP Default' : 'OM Específica';
+
     document.getElementById('edit-script-id').value = res.data.id;
     document.getElementById('edit-script-filename').value = res.data.filename || '';
     document.getElementById('edit-script-name').value = res.data.name || '';
     document.getElementById('edit-script-description').value = res.data.description || '';
     document.getElementById('edit-script-content').value = res.data.content || '';
     document.getElementById('edit-script-changelog').value = '';
-    document.getElementById('edit-script-scope').value = isCore ? 'om_specific' : 'gap_default';
+    document.getElementById('edit-script-scope').value = isCore ? contextScope : 'gap_default';
+    document.getElementById('edit-script-scope-preview').textContent = `Escopo atual: ${scopeLabel}`;
+    window.__scriptEditScope = contextScope;
 
     const nameGroup = document.getElementById('edit-script-name-group');
     const descGroup = document.getElementById('edit-script-description-group');
@@ -1753,7 +1761,7 @@ async function saveScriptVersion(event) {
     const scriptId = document.getElementById('edit-script-id').value;
     const content = document.getElementById('edit-script-content').value;
     const changelog = document.getElementById('edit-script-changelog').value.trim();
-    const scope = document.getElementById('edit-script-scope').value;
+    const scope = document.getElementById('edit-script-scope').value || window.__scriptEditScope || 'gap_default';
 
     if (!scriptId || !content.trim()) {
         Toast.error('Conteudo do script e obrigatorio');
@@ -1781,6 +1789,7 @@ async function saveScriptVersion(event) {
         Toast.success('Nova versão salva com sucesso');
         closeModal('modal-edit-script');
         loadAllScripts();
+        if (currentOrgId) loadOrgScripts(currentOrgId);
     } catch (error) {
         Toast.error('Erro ao salvar nova versão');
     }
