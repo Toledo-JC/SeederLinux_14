@@ -702,6 +702,53 @@ async function selectOrganization(orgId) {
 }
 window.selectOrganization = selectOrganization;
 
+function normalizeText(value) {
+    return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function matchesVariableSearch(variable, searchText) {
+    if (!searchText) return true;
+    const haystack = [variable.name, variable.description, variable.placeholder].join(' ');
+    return normalizeText(haystack).includes(searchText);
+}
+
+const variableHelpText = {
+    NTP_SERVER: 'Apenas IP ou hostname, sem http://. Ex: pool.ntp.org',
+    HOMEPAGE: 'Inclua http:// ou https://. Ex: http://www.intraer',
+    PRINTERS: 'Nomes separados por vírgula. Ex: printer1,printer2',
+    COMPARTILHAMENTOS: 'Nomes separados por vírgula. Ex: publico,usuarios,setores',
+    SSH_GROUPS: 'Grupos separados por vírgula. Ex: linux-admins,_DASTI'
+};
+
+function getVariableTooltip(variable) {
+    const variableName = String(variable?.name || '').toUpperCase();
+    return variableHelpText[variableName] || variable?.description || '';
+}
+
+function getFieldLabelMarkup(variable, labelText) {
+    const tooltip = getVariableTooltip(variable);
+    const label = Utils.escapeHtml(labelText || variable.name || '');
+    if (!tooltip) return label;
+    return `
+        <span class="var-label-with-tooltip">
+            <span class="var-label-text">${label}</span>
+            <span class="var-help-icon" tabindex="0" aria-label="${Utils.escapeHtml(tooltip)}">?</span>
+            <span class="var-tooltip">${Utils.escapeHtml(tooltip)}</span>
+        </span>
+    `;
+}
+
+function updateVariableSearchCount() {
+    const countEl = document.getElementById('var-results-count');
+    if (!countEl) return;
+    const searchInput = document.getElementById('var-search');
+    const searchValue = searchInput ? searchInput.value.trim() : '';
+    const total = document.querySelectorAll('.var-row').length;
+    const visible = Array.from(document.querySelectorAll('.var-row')).filter(row => row.style.display !== 'none').length;
+    const displayed = searchValue ? Math.max(visible, 0) : Math.max(total, 0);
+    countEl.textContent = `Mostrando ${displayed} de ${Math.max(total, 0)} variáveis`;
+}
+
 // ============ VARIABLES ============
 
 async function loadVariables(orgId) {
@@ -736,11 +783,9 @@ function renderVariables(vars) {
         return;
     }
 
-    // Mapa var->value para resolver dependencias e grupos
     const varByName = {};
     vars.forEach(v => { varByName[v.name] = v; });
 
-    // Vars ocultas por dependencia
     const hiddenNames = new Set();
     Object.entries(dependentFields).forEach(([parent, children]) => {
         const p = varByName[parent];
@@ -751,7 +796,6 @@ function renderVariables(vars) {
         }
     });
 
-    // Assign each variable to a super category bucket
     const superBuckets = {};
     superCategoryOrder.forEach(sc => { superBuckets[sc] = []; });
 
@@ -761,38 +805,37 @@ function renderVariables(vars) {
         superBuckets[sc].push(v);
     });
 
-    // Only show super categories that have variables
     const activeSuperCats = superCategoryOrder.filter(sc => superBuckets[sc].length > 0);
 
-    // Default to first available if current selection is invalid
     if (!activeCategory || !superBuckets[activeCategory] || superBuckets[activeCategory].length === 0) {
         activeCategory = activeSuperCats[0] || 'identidade';
     }
 
-    // Build super category tabs
     let html = '<div class="category-tabs">';
     activeSuperCats.forEach(sc => {
         html += `<button class="cat-tab ${activeCategory === sc ? 'active' : ''}" onclick="filterByCategory('${Utils.escapeHtml(sc)}')">${superCategoryLabels[sc] || sc}</button>`;
     });
     html += '</div>';
 
-    // Search filter
-    const search = document.getElementById('var-search')?.value?.toLowerCase() || '';
+    const searchInput = document.getElementById('var-search');
+    const searchTerm = normalizeText(searchInput?.value || '');
     let bucket = superBuckets[activeCategory] || [];
-    if (search) bucket = bucket.filter(v => v.name.toLowerCase().includes(search));
+
+    if (searchTerm) {
+        bucket = bucket.filter(v => matchesVariableSearch(v, searchTerm));
+    }
 
     if (!bucket.length) {
         html += '<p class="text-slate-400 text-center py-8">Nenhuma variavel nesta categoria</p>';
         el.innerHTML = html;
+        updateVariableSearchCount();
         return;
     }
 
-    // Get the section definitions for this super category
     const sections = superCategorySections[activeCategory] || [];
     const sectionVarNames = new Set();
     sections.forEach(s => s.vars.forEach(n => sectionVarNames.add(n)));
 
-    // Variables that don't match any defined section in this super category
     const leftover = bucket.filter(v => !sectionVarNames.has(v.name));
 
     html += '<div class="var-grid">';
@@ -801,24 +844,24 @@ function renderVariables(vars) {
         const sectionVars = bucket.filter(v => section.vars.includes(v.name));
         if (!sectionVars.length) return;
 
-        html += `<div class="var-section-header"><h4 class="var-section-title">${Utils.escapeHtml(section.title)}</h4></div>`;
+        const sectionHidden = searchTerm && !sectionVars.some(v => matchesVariableSearch(v, searchTerm));
+        html += `<div class="var-section-header" ${sectionHidden ? 'style="display:none;"' : ''}><h4 class="var-section-title">${Utils.escapeHtml(section.title)}</h4></div>`;
 
         if (activeCategory === 'repositorios' && section.vars.includes('REPOSITORY_DEBIAN_URL')) {
-            html += renderRepositoryCards(sectionVars);
+            html += renderRepositoryCards(sectionVars, searchTerm);
         } else {
-            html += renderVarsWithGroups(sectionVars);
+            html += renderVarsWithGroups(sectionVars, searchTerm);
         }
     });
 
-    // Render leftover variables (not matching any defined section)
     if (leftover.length) {
-        html += `<div class="var-section-header"><h4 class="var-section-title">Outras Variáveis</h4></div>`;
-        html += renderVarsWithGroups(leftover);
+        html += `<div class="var-section-header" ${searchTerm && !leftover.some(v => matchesVariableSearch(v, searchTerm)) ? 'style="display:none;"' : ''}><h4 class="var-section-title">Outras Variáveis</h4></div>`;
+        html += renderVarsWithGroups(leftover, searchTerm);
     }
 
     html += '</div>';
-
     el.innerHTML = html;
+    updateVariableSearchCount();
 }
 
 // ===== Layout especial: Repositorios por distribuicao =====
@@ -830,7 +873,7 @@ const repoDistros = [
     { name: 'Padrao',   cls: 'default', logo: '/assets/images/distros/default.svg', enabledVar: null, urlVar: null, placeholder: '' }
 ];
 
-function renderRepositoryCards(vars) {
+function renderRepositoryCards(vars, searchTerm = '') {
     const varMap = {};
     vars.forEach(v => { varMap[v.name] = v; });
 
@@ -842,9 +885,11 @@ function renderRepositoryCards(vars) {
         const urlVar = varMap[d.urlVar];
         if (!enVar && !urlVar) return;
 
+        const matches = !searchTerm || [enVar, urlVar].some(v => v && matchesVariableSearch(v, searchTerm));
+        const rowStyle = matches ? '' : 'style="display:none;"';
         const enabled = enVar && (enVar.current_value === 'true' || enVar.current_value === '1' || enVar.current_value === true);
 
-        html += `<div class="repo-card ${d.cls}">
+        html += `<div class="repo-card ${d.cls}" ${rowStyle}>
             <div class="repo-card-header">
                 <img src="${d.logo}" alt="${d.name}" onerror="if(this.parentElement)this.style.display='none'">
                 <h4>${d.name}</h4>
@@ -863,13 +908,7 @@ function renderRepositoryCards(vars) {
         if (urlVar) {
             const urlStyle = enabled ? '' : 'style="display:none;"';
             html += `<div class="repo-url-wrap" ${urlStyle}>
-                <input type="text" 
-                if (v.name === 'SSH_GROUPS') {
-                    helpHtml = '<span class="text-xs text-slate-400 mt-1 block">Lista de grupos separados por vírgula. Ex: linux-admins,_DASTI</span>';
-                } else {
-                    helpHtml = '';
-                }
-class="var-input" data-var="${urlVar.name}" value="${Utils.escapeHtml(urlVar.current_value || '')}" placeholder="${d.placeholder}">
+                <input type="text" class="var-input" data-var="${urlVar.name}" value="${Utils.escapeHtml(urlVar.current_value || '')}" placeholder="${d.placeholder}">
                 <p class="text-slate-500 text-xs mt-1 font-mono">${urlVar.name}</p>
             </div>`;
         }
@@ -887,7 +926,7 @@ function toggleRepoUrl(checkbox, urlVarName) {
 }
 
 // Renderiza vars agrupando as que pertencem ao mesmo bloco visual (ex: sudo_groups)
-function renderVarsWithGroups(vars) {
+function renderVarsWithGroups(vars, searchTerm = '') {
     let html = '';
     const grouped = {};
     const rest = [];
@@ -900,7 +939,7 @@ function renderVarsWithGroups(vars) {
             rest.push(v);
         }
     });
-    // Bloco de grupos primeiro
+
     Object.entries(grouped).forEach(([blockKey, blockVars]) => {
         blockVars.sort((a, b) => groupedVariables[a.name].order - groupedVariables[b.name].order);
         html += `<div class="col-span-2 mb-2 p-4 bg-slate-800/40 border border-slate-700 rounded-lg">
@@ -908,29 +947,30 @@ function renderVarsWithGroups(vars) {
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">`;
         blockVars.forEach(v => {
             const label = groupedVariables[v.name].label;
-            html += `<div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">${Utils.escapeHtml(label)}</label>
+            const itemHidden = !!searchTerm && !matchesVariableSearch(v, searchTerm);
+            html += `<div class="var-row-wrapper" ${itemHidden ? 'style="display:none;"' : ''}>
+                <label class="block text-xs font-medium text-slate-400 mb-1">${getFieldLabelMarkup(v, label)}</label>
                 ${renderTypedInput(v)}
                 <p class="text-slate-500 text-xs mt-1 font-mono">${Utils.escapeHtml(v.name)}</p>
             </div>`;
         });
         html += `</div></div>`;
     });
-    rest.forEach(v => html += renderVarRow(v));
+    rest.forEach(v => html += renderVarRow(v, searchTerm));
     return html;
 }
 
-function renderVarRow(v) {
-    // Category "assets" tem layout de card dedicado (com preview + upload + remover)
+function renderVarRow(v, searchTerm = '') {
     if ((v.category || '') === 'assets' || v.type === 'image') {
         return renderAssetCard(v);
     }
 
     const input = renderTypedInput(v);
+    const hiddenStyle = !!searchTerm && !matchesVariableSearch(v, searchTerm) ? 'style="display:none;"' : '';
     return `
-        <div class="var-row">
+        <div class="var-row" ${hiddenStyle}>
             <label class="block text-sm font-medium text-slate-300 mb-1">
-                ${Utils.escapeHtml(v.name)}${v.is_required ? '<span class="text-red-400">*</span>' : ''}
+                ${getFieldLabelMarkup(v, v.name)}${v.is_required ? '<span class="text-red-400">*</span>' : ''}
             </label>
             ${input}
             ${v.description ? `<p class="text-slate-500 text-xs mt-1">${Utils.escapeHtml(v.description)}</p>` : ''}
@@ -1063,11 +1103,13 @@ function renderTypedInput(v) {
             </label>
             <span class="ml-2 text-sm text-slate-300">${checked ? 'Ativo' : 'Inativo'}</span>`;
     }
+
     if (Array.isArray(opts)) {
         return `<select data-var-id="${varId}" class="var-select">
             ${opts.map(o => `<option value="${o}" ${val === o ? 'selected' : ''}>${o === '' ? '(auto-detectar)' : o}</option>`).join('')}
         </select>`;
     }
+
     if (v.type === 'tags') {
         const items = String(val).split(',').map(s => s.trim()).filter(Boolean);
         const chips = items.map((t, i) =>
@@ -1080,9 +1122,8 @@ function renderTypedInput(v) {
                 <input type="hidden" data-var-id="${varId}" data-type="tags-hidden" value="${Utils.escapeHtml(items.join(','))}">
             </div>`;
     }
+
     if (v.type === 'image' || (v.name.endsWith('_URL') && ['WALLPAPER_URL','WALLPAPER_LOGIN_URL','LOGO_URL','GREETER_URL'].includes(v.name))) {
-        // Vars de imagem sao renderizadas via renderAssetCard (card completo).
-        // Este fallback so e usado se alguem chamar renderTypedInput diretamente (ex: em modais).
         const preview = val
             ? `<img src="${Utils.escapeHtml(val)}" class="asset-preview" onerror="if(this.style)this.style.display='none'" alt="Preview">`
             : `<div class="asset-preview-empty">Sem imagem</div>`;
@@ -1092,15 +1133,12 @@ function renderTypedInput(v) {
                 <input type="url" data-var-id="${varId}" value="${Utils.escapeHtml(val)}" class="var-input" placeholder="URL da imagem" oninput="updateAssetPreview(this)">
             </div>`;
     }
+
     if (v.type === 'json_conky' || v.name === 'CONKY_CONFIG') {
         return renderConkyPanel(v, varId, val);
     }
+
     if (v.type === 'array') {
-        let ph = 'Separe multiplos valores por virgula';
-        if (v.name === 'JAVA_EXCEPTIONS') ph = 'Uma URL por linha';
-        if (v.name === 'SSH_GROUPS') ph = 'Grupos separados por vírgula. Ex: linux-admins,ASTIC';
-        return `<textarea data-var-id="${varId}" rows="2" class="var-textarea" placeholder="${ph}">${Utils.escapeHtml(val)}</textarea>`;
-        if (v.type === 'array') {
         let ph = 'Separe multiplos valores por virgula';
         let note = '';
         if (v.name === 'JAVA_EXCEPTIONS') ph = 'Uma URL por linha';
@@ -1110,6 +1148,7 @@ function renderTypedInput(v) {
         }
         return `<textarea data-var-id="${varId}" rows="2" class="var-textarea" placeholder="${ph}">${Utils.escapeHtml(val)}</textarea>${note}`;
     }
+
     if (v.type === 'url' || v.name.includes('URL')) {
         let ph = '';
         if (v.name === 'BASE_URL') ph = ' placeholder="https://seederlinux.SUA-OM.intraer"';
@@ -1118,9 +1157,11 @@ function renderTypedInput(v) {
         if (v.name === 'SEEDER_SERVER') note = '<div class="var-hint" style="font-size:0.8em;color:var(--text-muted);margin-top:4px">Configure este FQDN no DNS ou adicione ao /etc/hosts das estacoes.</div>';
         return `<input type="url" data-var-id="${varId}" value="${Utils.escapeHtml(val)}" class="var-input"${ph}>${note}`;
     }
+
     if (v.type === 'ip' || v.name.includes('IP') || v.name.includes('DNS') || v.name === 'NTP_SERVER') {
         return `<input type="text" data-var-id="${varId}" value="${Utils.escapeHtml(val)}" class="var-input font-mono" placeholder="IP ou hostname (ex: 10.108.64.51)" pattern="^([a-zA-Z0-9.-]+)$" title="Apenas IP ou hostname. Nao use URLs (http://).">`;
     }
+
     if (v.type === 'password') {
         const isB64Pwd = v.name === 'ADMIN_PASSWORD_B64' || v.name === 'VNC_PASSWORD_B64';
         const alertBadge = isB64Pwd
@@ -1131,6 +1172,7 @@ function renderTypedInput(v) {
             : '';
         return `<input type="password" data-var-id="${varId}" data-b64-encode="${isB64Pwd ? '1' : '0'}" value="${Utils.escapeHtml(val)}" class="var-input"${hint}>${alertBadge}`;
     }
+
     return `<input type="text" data-var-id="${varId}" value="${Utils.escapeHtml(val)}" class="var-input">`;
 }
 
@@ -1601,7 +1643,7 @@ async function loadBundles(orgId) {
     const el = document.getElementById('bundles-tbody');
     if (!el) return;
 
-    el.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Carregando bundles...</td></tr>';
+    el.innerHTML = '<tr><td colspan="6" class="px-4 py-8"><div class="skeleton-table-row"><span class="skeleton-block short"></span><span class="skeleton-block"></span><span class="skeleton-block"></span><span class="skeleton-block"></span><span class="skeleton-block short"></span></div></td></tr>';
 
     const res = await API.get('bundles', { org_id: orgId });
     if (!res.success) { el.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-rose-400">Erro ao carregar</td></tr>'; return; }
@@ -1957,7 +1999,7 @@ async function openImageGallery(varName, varId) {
     if (titleEl) titleEl.textContent = 'Selecionar imagem - ' + (fieldLabels[varName] || varName);
 
     const gridEl = document.getElementById('gallery-grid');
-    if (gridEl) gridEl.innerHTML = '<p class="text-slate-400 text-center py-8">Carregando imagens...</p>';
+    if (gridEl) gridEl.innerHTML = '<div class="skeleton-gallery-grid"><span class="skeleton-block"></span><span class="skeleton-block"></span><span class="skeleton-block"></span><span class="skeleton-block"></span></div>';
 
     openModal('modal-image-gallery');
 
@@ -1968,7 +2010,7 @@ async function loadGalleryImages() {
     const gridEl = document.getElementById('gallery-grid');
     if (!gridEl) return;
 
-    gridEl.innerHTML = '<p class="text-slate-400 text-center py-8">Carregando imagens...</p>';
+    gridEl.innerHTML = '<div class="skeleton-gallery-grid"><span class="skeleton-block"></span><span class="skeleton-block"></span><span class="skeleton-block"></span><span class="skeleton-block"></span></div>';
 
     try {
         const res = await API.get('gallery-images');

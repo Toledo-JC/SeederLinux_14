@@ -247,7 +247,10 @@
                                 <div class="card-header">
                                     <h3 class="card-title">Variaveis de Configuracao</h3>
                                     <div class="flex items-center gap-2">
-                                        <input type="text" id="var-search" placeholder="Buscar..." class="form-input" style="width: 200px;">
+                                        <div class="variables-search-box">
+                                            <input type="text" id="var-search" placeholder="Buscar..." class="form-input" style="width: 200px;">
+                                            <span id="var-results-count" class="var-results-count">Mostrando 0 de 0 variáveis</span>
+                                        </div>
                                         <button id="btn-save-vars" class="btn btn-success btn-sm">Salvar</button>
                                         <button class="btn btn-primary btn-sm" onclick="openModal('modal-add-variable')">+ Variavel</button>
                                     </div>
