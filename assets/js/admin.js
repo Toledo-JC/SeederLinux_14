@@ -1624,20 +1624,14 @@ async function resetScriptToFactory(scriptId) {
     if (!confirm('Deseja reverter este script para a versão de fábrica?')) return;
 
     try {
-        const payload = { script_id: Number(scriptId) };
-        if (currentOrgId) {
-            payload.organization_id = Number(currentOrgId);
-        }
-
-        const res = await API.post('reset-to-factory', payload);
+        const res = await API.post('reset-script-factory', { script_id: Number(scriptId) });
         if (!res.success) {
             Toast.error(res.error || 'Erro ao reverter para fábrica');
             return;
         }
 
-        Toast.success(res.message || 'Script revertido para a versão de fábrica');
+        Toast.success('Script revertido para a versão de fábrica');
         loadAllScripts();
-        if (currentOrgId) loadOrgScripts(currentOrgId);
     } catch (error) {
         Toast.error('Erro ao reverter para fábrica');
     }
@@ -1837,7 +1831,7 @@ window.moveOrgScriptOrder = moveOrgScriptOrder;
 
 async function removeLocalScriptOverride(scriptId) {
     if (!confirm('Deseja remover o override local deste script e voltar ao padrão do servidor?')) return;
-    const res = await API.post('delete-script-om-override', { script_id: Number(scriptId), organization_id: Number(currentOrgId) });
+    const res = await API.post('reset-script-om-default', { script_id: Number(scriptId), organization_id: Number(currentOrgId) });
     if (!res.success) {
         Toast.error(res.error || 'Erro ao remover override local');
         return;
@@ -1935,10 +1929,9 @@ window.editScript = editScript;
 
 async function saveScriptVersion(event) {
     event.preventDefault();
-    const scriptId = document.getElementById('edit-script-id').value;
+    const scriptId = Number(document.getElementById('edit-script-id').value);
     const content = document.getElementById('edit-script-content').value;
     const changelog = document.getElementById('edit-script-changelog').value.trim();
-    const scope = document.getElementById('edit-script-scope').value || window.__scriptEditScope || 'gap_default';
 
     if (!scriptId || !content.trim()) {
         Toast.error('Conteudo do script e obrigatorio');
@@ -1946,29 +1939,21 @@ async function saveScriptVersion(event) {
     }
 
     try {
-        const payload = {
-            script_id: Number(scriptId),
+        const res = await API.post('save-script-gap-version', {
+            script_id: scriptId,
             content,
-            changelog,
-            scope
-        };
-
-        if (scope === 'om_specific') {
-            payload.organization_id = Number(currentOrgId || 0);
-        }
-
-        const res = await API.post('script-version', payload);
+            changelog
+        });
         if (!res.success) {
-            Toast.error(res.error || 'Erro ao salvar nova versão');
+            Toast.error(res.error || 'Erro ao salvar versao GAP');
             return;
         }
 
-        Toast.success('Nova versão salva com sucesso');
+        Toast.success('Versao GAP salva com sucesso');
         closeModal('modal-edit-script');
         loadAllScripts();
-        if (currentOrgId) loadOrgScripts(currentOrgId);
     } catch (error) {
-        Toast.error('Erro ao salvar nova versão');
+        Toast.error('Erro ao salvar versao GAP');
     }
 }
 window.saveScriptVersion = saveScriptVersion;
