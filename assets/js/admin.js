@@ -1748,9 +1748,8 @@ async function openOmScriptEditor(scriptId, filename, content, name, description
     document.getElementById('edit-script-description').value = resolvedDescription;
     document.getElementById('edit-script-content').value = content || scriptData.content || '';
     document.getElementById('edit-script-changelog').value = '';
-    document.getElementById('edit-script-scope-preview').textContent = 'Escopo atual: OM Específica';
+    document.getElementById('edit-script-scope-preview').textContent = 'Escopo: OM Específica';
     document.getElementById('edit-script-scope').value = 'om_specific';
-    document.getElementById('edit-script-scope-group').style.display = 'none';
     document.getElementById('edit-script-name-group').style.display = 'none';
     document.getElementById('edit-script-description-group').style.display = 'none';
     document.getElementById('edit-script-changelog-group').style.display = 'block';
@@ -1778,11 +1777,20 @@ async function saveOmScriptVersion(event) {
         return;
     }
 
+    let executionOrder = 0;
+    try {
+        const orgScriptsRes = await API.get('get-org-scripts', { organization_id: Number(currentOrgId) });
+        if (orgScriptsRes.success) {
+            const existing = (orgScriptsRes.data || []).find(s => Number(s.id) === scriptId);
+            if (existing) executionOrder = Number(existing.execution_order || 0);
+        }
+    } catch (e) {}
+
     const res = await API.post('save-script-om-version', {
         script_id: scriptId,
         organization_id: Number(currentOrgId),
         content,
-        execution_order: 0,
+        execution_order: executionOrder,
         is_active: true,
         changelog
     });
@@ -2076,16 +2084,6 @@ async function restoreLocalScriptDefault(scriptId) {
 }
 window.restoreLocalScriptDefault = restoreLocalScriptDefault;
 
-async function removeLocalScriptOverride(scriptId) {
-    await restoreLocalScriptDefault(scriptId);
-}
-window.removeLocalScriptOverride = removeLocalScriptOverride;
-
-async function restoreServerDefault(scriptId) {
-    await restoreLocalScriptDefault(scriptId);
-}
-window.restoreServerDefault = restoreServerDefault;
-
 function switchScriptTab(type) {
     scriptTab = type;
     document.querySelectorAll('.script-tab-btn').forEach(btn => {
@@ -2095,8 +2093,6 @@ function switchScriptTab(type) {
     });
     loadOrgScripts(currentOrgId);
 }
-window.switchScriptTab = switchScriptTab;
-
 window.switchScriptTab = switchScriptTab;
 
 async function viewScript(id) {
@@ -2135,13 +2131,12 @@ async function editScript(id, scopeOverride = null) {
     document.getElementById('edit-script-content').value = res.data.content || '';
     document.getElementById('edit-script-changelog').value = '';
     document.getElementById('edit-script-scope').value = isCore ? contextScope : 'gap_default';
-    document.getElementById('edit-script-scope-preview').textContent = `Escopo atual: ${scopeLabel}`;
+    document.getElementById('edit-script-scope-preview').textContent = `Escopo: ${scopeLabel}`;
     window.__scriptEditScope = contextScope;
 
     const nameGroup = document.getElementById('edit-script-name-group');
     const descGroup = document.getElementById('edit-script-description-group');
     const changelogGroup = document.getElementById('edit-script-changelog-group');
-    const scopeGroup = document.getElementById('edit-script-scope-group');
     const submitBtn = document.getElementById('edit-script-submit-btn');
 
     if (isCore) {
@@ -2149,7 +2144,6 @@ async function editScript(id, scopeOverride = null) {
         nameGroup.style.display = 'none';
         descGroup.style.display = 'none';
         changelogGroup.style.display = 'block';
-        scopeGroup.style.display = 'block';
         submitBtn.textContent = 'Salvar como nova versão';
         document.getElementById('edit-script-form').onsubmit = saveScriptVersion;
     } else {
@@ -2157,7 +2151,6 @@ async function editScript(id, scopeOverride = null) {
         nameGroup.style.display = 'block';
         descGroup.style.display = 'block';
         changelogGroup.style.display = 'none';
-        scopeGroup.style.display = 'none';
         submitBtn.textContent = 'Salvar';
         document.getElementById('edit-script-form').onsubmit = updateScript;
     }
