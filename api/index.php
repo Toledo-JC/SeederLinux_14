@@ -689,7 +689,7 @@ function handleGetVariables($orgId) {
     try {
         $vars = Database::fetchAll(
             "SELECT vd.id, vd.name, vd.description, vd.category, vd.type, vd.is_required, vd.default_value,
-                    ov.value as current_value
+                    COALESCE(ov.value, vd.default_value) as current_value
              FROM variable_definitions vd
              LEFT JOIN organization_variables ov ON ov.variable_id = vd.id AND ov.organization_id = ?
              ORDER BY vd.category, vd.name",

@@ -33,16 +33,9 @@ NTP_SERVER="${NTP_SERVER#https://}"
 
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
 
-if [ "$NON_INTERACTIVE" = "true" ]; then
-    CHANGE_HOST="n"
-else
-    echo ">>> Dominio: $DOMINIO"
-    echo ">>> DNS primario: $DNS_PRIMARIO"
-    echo ">>> DNS secundario: ${DNS_SECUNDARIO}"
-    echo ">>> NTP: $NTP_SERVER"
-    read -p ">>> Deseja alterar o hostname? (s/N): " CHANGE_HOST
-fi
-
+# ============================================================
+# Exibir informacoes
+# ============================================================
 echo ">>> Dominio: $DOMINIO"
 echo ">>> DNS primario: $DNS_PRIMARIO"
 echo ">>> DNS secundario: ${DNS_SECUNDARIO}"
@@ -53,11 +46,13 @@ echo ">>> NTP: $NTP_SERVER"
 # ============================================================
 CURRENT_HOSTNAME=$(hostname)
 echo ">>> Hostname atual: $CURRENT_HOSTNAME"
+
 if [ "$NON_INTERACTIVE" = "true" ]; then
     CHANGE_HOST="n"
 else
     read -p ">>> Deseja alterar o hostname? (s/N): " CHANGE_HOST
 fi
+
 if [[ "$CHANGE_HOST" =~ ^[Ss]$ ]]; then
     if [ "$NON_INTERACTIVE" = "true" ]; then
         echo ">>> Modo não interativo: mantendo hostname atual."

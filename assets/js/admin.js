@@ -96,7 +96,7 @@ const superCategorySections = {
     ],
     'seguranca_agente': [
         { title: 'Certificados', vars: ['CERTIFICATE_AUTO_INSTALL', 'CERTIFICATE_BUNDLE'] },
-        { title: 'Agente', vars: ['AGENT_NO_CHECK_CERT', 'INSTALL_AGENT'] },
+        { title: 'Agente', vars: ['AGENT_NO_CHECK_CERT', 'INSTALL_AGENT', 'NON_INTERACTIVE'] },
         { title: 'Grupos Sudo', vars: ['GRUPO_ADMIN_AD', 'GRUPO_ADMIN_LINUX', 'GRUPO_DASTI'] },
         { title: 'Exceções', vars: ['JAVA_EXCEPTIONS', 'SSH_GROUPS'] }
     ],
@@ -1151,10 +1151,39 @@ function renderTypedInput(v) {
 
     if (v.type === 'url' || v.name.includes('URL')) {
         let ph = '';
-        if (v.name === 'BASE_URL') ph = ' placeholder="https://seederlinux.SUA-OM.intraer"';
-        else if (v.name === 'SEEDER_SERVER') ph = ' placeholder="https://seederlinux.SUA-OM.intraer"';
         let note = '';
-        if (v.name === 'SEEDER_SERVER') note = '<div class="var-hint" style="font-size:0.8em;color:var(--text-muted);margin-top:4px">Configure este FQDN no DNS ou adicione ao /etc/hosts das estacoes.</div>';
+        
+        if (v.name === 'BASE_URL') {
+            ph = ' placeholder="https://seederlinux.SUA-OM.intraer"';
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        } else if (v.name === 'SEEDER_SERVER') {
+            ph = ' placeholder="https://seederlinux.SUA-OM.intraer"';
+            note = '<div class="var-hint" style="font-size:0.8em;color:var(--text-muted);margin-top:4px">Inclua o protocolo (http:// ou https://). Configure este FQDN no DNS ou adicione ao /etc/hosts das estacoes.</div>';
+        } else if (v.name === 'HOMEPAGE') {
+            ph = ' placeholder="https://portal.SUA-OM.intraer"';
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        } else if (v.name === 'REPOSITORY_URL') {
+            ph = ' placeholder="http://mirror.SUA-OM.intraer/debian"';
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        } else if (v.name === 'WALLPAPER_URL') {
+            ph = ' placeholder="https://seederlinux.SUA-OM.intraer/assets/wallpaper.jpg"';
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        } else if (v.name === 'LOGO_URL') {
+            ph = ' placeholder="https://seederlinux.SUA-OM.intraer/assets/logo.png"';
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        } else if (v.name === 'GREETER_URL') {
+            ph = ' placeholder="https://seederlinux.SUA-OM.intraer/assets/greeter.png"';
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        } else if (v.name === 'WALLPAPER_LOGIN_URL') {
+            ph = ' placeholder="https://seederlinux.SUA-OM.intraer/assets/login-bg.jpg"';
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        } else if (v.name === 'CERTIFICATE_BUNDLE') {
+            ph = ' placeholder="https://seederlinux.SUA-OM.intraer/certs/bundle.tar.gz"';
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        } else {
+            note = '<span class="text-xs text-slate-400 mt-1 block">Inclua o protocolo (http:// ou https://)</span>';
+        }
+        
         return `<input type="url" data-var-id="${varId}" value="${Utils.escapeHtml(val)}" class="var-input"${ph}>${note}`;
     }
 

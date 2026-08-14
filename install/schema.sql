@@ -190,7 +190,10 @@ INSERT INTO variable_definitions (name, placeholder, description, type, category
 -- SeederLinux Server
 ('SEEDER_SERVER', '{{SEEDER_SERVER}}', 'URL base do servidor SeederLinux para check-in do agente. Configure este FQDN no DNS ou adicione ao /etc/hosts das estacoes.', 'url', 'rede', FALSE, 'https://seederlinux.om.local', 140),
 ('INSTALL_AGENT', '{{INSTALL_AGENT}}', 'Instalar agente de check-in periodico', 'boolean', 'agente', FALSE, 'true', 150),
-('AGENT_NO_CHECK_CERT', '{{AGENT_NO_CHECK_CERT}}', 'Permitir certificado autoassinado no agente', 'boolean', 'agente', FALSE, 'true', 151)
+('AGENT_NO_CHECK_CERT', '{{AGENT_NO_CHECK_CERT}}', 'Permitir certificado autoassinado no agente', 'boolean', 'agente', FALSE, 'true', 151),
+
+-- Execution / Provisioning
+('NON_INTERACTIVE', '{{NON_INTERACTIVE}}', 'Modo nao-interativo: true para execucao automatica, false para permitir prompts do usuario', 'boolean', 'avancado', FALSE, 'true', 160)
 ON CONFLICT (name) DO NOTHING;
 
 -- ============================================================================
@@ -232,6 +235,10 @@ ON CONFLICT (organization_id, variable_id) DO NOTHING;
 
 INSERT INTO organization_variables (organization_id, variable_id, value)
 SELECT 1, id, 'https://seederlinux.om.local' FROM variable_definitions WHERE name = 'SEEDER_SERVER'
+ON CONFLICT (organization_id, variable_id) DO NOTHING;
+
+INSERT INTO organization_variables (organization_id, variable_id, value)
+SELECT 1, id, 'true' FROM variable_definitions WHERE name = 'NON_INTERACTIVE'
 ON CONFLICT (organization_id, variable_id) DO NOTHING;
 
 -- ============================================================================
