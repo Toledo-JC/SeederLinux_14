@@ -1673,80 +1673,87 @@ async function loadOrgScripts(orgId) {
     const el = document.getElementById('org-scripts-list');
     if (!el) return;
 
+    const sectionTitle = scriptTab === 'Core' ? `Scripts Core (${currentList.length})` : `Scripts Custom (${currentList.length})`;
+
     el.innerHTML = `
-        <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Nome</th>
-                        <th>Descricao</th>
-                        <th>Ordem</th>
-                        <th>Versao Local</th>
-                        <th>Status</th>
-                        <th class="text-right">Acoes</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${currentList.map((s, index) => {
-                        const badgeMeta = getOrgScriptBadgeMeta(s);
-                        const statusBadgeClass = s.is_active ? 'badge-success' : 'badge-secondary';
-                        const statusLabel = s.is_active ? 'Ativo' : 'Inativo';
-                        const versionLabel = s.has_local_override ? `Local${s.version ? ` v${s.version}` : ''}` : badgeMeta.label;
-                        return `
-                            <tr>
-                                <td>
-                                    <div class="font-medium text-white">${Utils.escapeHtml(s.name || s.filename || 'Script')}</div>
-                                    <div class="text-xs text-slate-400">${Utils.escapeHtml(s.filename || '')}</div>
-                                </td>
-                                <td>${Utils.escapeHtml(s.description || 'Sem descricao')}</td>
-                                <td>${Number(s.execution_order || index + 1)}</td>
-                                <td><span class="badge ${badgeMeta.className}">${Utils.escapeHtml(versionLabel)}</span></td>
-                                <td>
-                                    <button class="btn ${s.is_active ? 'btn-success btn-sm' : 'btn-secondary btn-sm'}" onclick="toggleLocalScript(${s.id}, ${s.is_active ? 'false' : 'true'})">
-                                        ${statusLabel}
-                                    </button>
-                                </td>
-                                <td class="text-right">
-                                    <div class="flex justify-end gap-2 flex-wrap">
-                                        <button class="btn btn-secondary btn-sm" onclick="openOmScriptEditor(${s.id}, ${JSON.stringify(s.filename || '')}, ${JSON.stringify(s.content || '')}, ${JSON.stringify(s.name || '')}, ${JSON.stringify(s.description || '')})">Editar</button>
-                                        <button class="btn btn-secondary btn-sm" onclick="openLocalScriptHistory(${s.id}, ${JSON.stringify(s.name || s.filename || 'Script')})">Histórico</button>
-                                        <button class="btn btn-danger btn-sm" onclick="restoreLocalScriptDefault(${s.id})">Usar Default do Servidor</button>
-                                    </div>
-                                </td>
-                            </tr>
-                        `;
-                    }).join('') || '<tr><td colspan="6" class="text-slate-500 text-center py-4">Nenhum script</td></tr>'}
-                </tbody>
-            </table>
-        </div>
-        <div class="mt-4 flex justify-end">
-            <button class="btn btn-secondary btn-sm" onclick="showOrgReorderModal()">Reordenar Scripts</button>
+        <div class="mb-6">
+            <h4 class="text-sm font-semibold text-slate-400 uppercase mb-3">${sectionTitle}</h4>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>Descricao</th>
+                            <th>Ordem</th>
+                            <th>Versao Local</th>
+                            <th>Status</th>
+                            <th class="text-right">Acoes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${currentList.map((s) => {
+                            const badgeMeta = getOrgScriptBadgeMeta(s);
+                            const statusLabel = s.is_active ? 'Ativo' : 'Inativo';
+                            const versionLabel = s.has_local_override ? `Local${s.version ? ` v${s.version}` : ''}` : badgeMeta.label;
+                            return `
+                                <tr>
+                                    <td><div class="font-medium text-white">${Utils.escapeHtml(s.filename || s.name || 'Script')}</div></td>
+                                    <td>${Utils.escapeHtml(s.description || 'Sem descricao')}</td>
+                                    <td>${Number(s.execution_order || 0)}</td>
+                                    <td><span class="badge ${badgeMeta.className}">${Utils.escapeHtml(versionLabel)}</span></td>
+                                    <td>
+                                        <button class="btn ${s.is_active ? 'btn-success btn-sm' : 'btn-secondary btn-sm'}" onclick="toggleLocalScript(${s.id}, ${s.is_active ? 'false' : 'true'})">
+                                            ${statusLabel}
+                                        </button>
+                                    </td>
+                                    <td class="text-right">
+                                        <div class="flex justify-end gap-2">
+                                            <button class="btn btn-secondary btn-sm" onclick="openOmScriptEditor(${s.id})">Editar</button>
+                                            <button class="btn btn-secondary btn-sm" onclick="openLocalScriptHistory(${s.id})">Histórico</button>
+                                            <button class="btn btn-danger btn-sm" onclick="restoreLocalScriptDefault(${s.id})">Usar Default do Servidor</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('') || '<tr><td colspan="6" class="text-slate-500 text-center py-4">Nenhum script</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button class="btn btn-secondary btn-sm" onclick="showOrgReorderModal()">Reordenar Scripts</button>
+            </div>
         </div>
     `;
 }
 
-async function openOmScriptEditor(scriptId, filename, content, name, description) {
+async function openOmScriptEditor(scriptId) {
     if (!currentOrgId) {
         Toast.error('Selecione uma OM antes de editar scripts locais');
         return;
     }
 
-    const scriptMeta = await API.get('script', { id: scriptId });
+    const [scriptMeta, orgScripts] = await Promise.all([
+        API.get('script', { id: scriptId }),
+        API.get('get-org-scripts', { organization_id: currentOrgId })
+    ]);
     if (!scriptMeta.success) {
         Toast.error(scriptMeta.error || 'Erro ao carregar script');
         return;
     }
 
     const scriptData = scriptMeta.data || {};
-    const resolvedName = name || scriptData.name || '';
-    const resolvedDescription = description || scriptData.description || '';
-    const resolvedFilename = filename || scriptData.filename || '';
+    const localScript = orgScripts.success
+        ? (orgScripts.data || []).find(script => Number(script.id) === Number(scriptId))
+        : null;
+    const resolvedName = localScript?.name || scriptData.name || '';
+    const resolvedDescription = localScript?.description || scriptData.description || '';
+    const resolvedFilename = localScript?.filename || scriptData.filename || '';
 
     document.getElementById('edit-script-id').value = scriptData.id;
     document.getElementById('edit-script-filename').value = resolvedFilename;
     document.getElementById('edit-script-name').value = resolvedName;
     document.getElementById('edit-script-description').value = resolvedDescription;
-    document.getElementById('edit-script-content').value = content || scriptData.content || '';
+    document.getElementById('edit-script-content').value = localScript?.content || scriptData.content || '';
     document.getElementById('edit-script-changelog').value = '';
     document.getElementById('edit-script-scope-preview').textContent = 'Escopo: OM Específica';
     document.getElementById('edit-script-scope').value = 'om_specific';
@@ -1806,7 +1813,7 @@ async function saveOmScriptVersion(event) {
 }
 window.saveOmScriptVersion = saveOmScriptVersion;
 
-async function openLocalScriptHistory(scriptId, scriptName) {
+async function openLocalScriptHistory(scriptId) {
     try {
         const res = await API.get('get-org-scripts', { organization_id: currentOrgId });
         if (!res.success) {
@@ -1819,7 +1826,8 @@ async function openLocalScriptHistory(scriptId, scriptName) {
         const contentEl = document.getElementById('script-history-content');
         if (!listEl || !contentEl) return;
 
-        document.getElementById('script-history-title').textContent = `Histórico: ${scriptName || 'Script'}`;
+        const scriptName = script?.name || script?.filename || 'Script';
+        document.getElementById('script-history-title').textContent = `Histórico: ${scriptName}`;
 
         if (!script || !script.has_local_override) {
             listEl.innerHTML = '<p class="text-slate-500 text-sm">Nenhum override local registrado para este script.</p>';
