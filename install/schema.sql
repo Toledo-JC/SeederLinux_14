@@ -304,13 +304,17 @@ CREATE TABLE IF NOT EXISTS om_script_versions (
     id SERIAL PRIMARY KEY,
     organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     script_id INTEGER NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
-    version_id INTEGER NOT NULL REFERENCES script_versions(id) ON DELETE CASCADE,
+    version_id INTEGER REFERENCES script_versions(id) ON DELETE CASCADE,
+    content TEXT,
+    execution_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, script_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_om_script_versions_org ON om_script_versions(organization_id);
 CREATE INDEX IF NOT EXISTS idx_om_script_versions_script ON om_script_versions(script_id);
+CREATE INDEX IF NOT EXISTS idx_om_script_versions_active ON om_script_versions(organization_id, script_id, is_active);
 
 -- ============================================================================
 -- Table 7: deploy_bundles

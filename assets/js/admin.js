@@ -1646,8 +1646,11 @@ window.resetScriptToFactory = resetScriptToFactory;
 
 async function loadOrgScripts(orgId) {
     if (!orgId) orgId = currentOrgId;
-    const res = await API.get('scripts', { org_id: orgId });
-    if (!res.success) return;
+    const res = await API.get('get-org-scripts', { organization_id: orgId });
+    if (!res.success) {
+        Toast.error(res.error || 'Erro ao carregar scripts da OM');
+        return;
+    }
 
     const scripts = res.data || [];
     const core = scripts.filter(s => s.is_core);
@@ -1657,23 +1660,197 @@ async function loadOrgScripts(orgId) {
     const el = document.getElementById('org-scripts-list');
     if (!el) return;
 
-    el.innerHTML = currentList.map(s => `
-        <div class="flex items-center justify-between p-3 bg-slate-900 rounded border border-slate-700 mb-1">
-            <div class="flex items-center gap-3">
-                <input type="checkbox" class="script-checkbox" value="${s.id}" checked>
-                <div>
-                    <span class="text-white">${Utils.escapeHtml(s.name)}</span>
-                    <span class="text-slate-500 text-sm ml-2">v${s.version || 1}</span>
-                    ${s.is_core ? '<span class="ml-2 px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">Core</span>' : ''}
+    const badgeClassBySource = {
+        factory: 'bg-slate-500/20 text-slate-300',
+        global: 'bg-amber-500/20 text-amber-300',
+        local: 'bg-emerald-500/20 text-emerald-300'
+    };
+    const badgeLabelBySource = {
+        factory: 'Fábrica',
+        global: 'Global',
+        local: 'Local'
+    };
+
+    el.innerHTML = currentList.map(s => {
+        const badgeClass = badgeClassBySource[s.source_type] || badgeClassBySource.factory;
+        const badgeLabel = badgeLabelBySource[s.source_type] || badgeLabelBySource.factory;
+        const isLocal = s.has_local_override && s.source_type === 'local';
+        return `
+            <div class="flex items-center justify-between p-3 bg-slate-900 rounded border border-slate-700 mb-1 gap-3">
+                <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <input type="checkbox" class="script-checkbox" value="${s.id}" checked>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-white truncate">${Utils.escapeHtml(s.name || s.filename)}</span>
+                            <span class="badge ${badgeClass}">${badgeLabel}</span>
+                            ${s.is_core ? '<span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded">Core</span>' : ''}
+                        </div>
+                        <div class="text-slate-500 text-xs mt-1">
+                            ${Utils.escapeHtml(s.filename || '')} • Ordem ${Number(s.execution_order || 0)} • ${s.is_active ? 'Ativo' : 'Inativo'}
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2 justify-end">
+                    <button onclick="viewScript(${s.id})" class="text-blue-400 hover:text-blue-300 text-sm">Ver</button>
+                    <button onclick="openOmScriptEditor(${s.id}, ${JSON.stringify(s.filename || '')}, ${JSON.stringify(s.content || '')})" class="text-amber-400 hover:text-amber-300 text-sm">Editar</button>
+                    <button onclick="toggleLocalScript(${s.id}, ${s.is_active ? 'false' : 'true'})" class="text-violet-400 hover:text-violet-300 text-sm">${s.is_active ? 'Desativar' : 'Ativar'}</button>
+                    <button onclick="moveOrgScriptOrder(${s.id}, -1)" class="text-slate-300 hover:text-white text-sm" title="Mover para cima">↑</button>
+                    <button onclick="moveOrgScriptOrder(${s.id}, 1)" class="text-slate-300 hover:text-white text-sm" title="Mover para baixo">↓</button>
+                    <button onclick="${isLocal ? `removeLocalScriptOverride(${s.id})` : `restoreServerDefault(${s.id})`}" class="text-red-400 hover:text-red-300 text-sm">${isLocal ? 'Restaurar Default' : 'Usar Default do Servidor'}</button>
                 </div>
             </div>
-            <div class="flex gap-2">
-                <button onclick="viewScript(${s.id})" class="text-blue-400 hover:text-blue-300 text-sm">Ver</button>
-                <button onclick="editScript(${s.id}, 'om_specific')" class="text-amber-400 hover:text-amber-300 text-sm">Editar</button>
-            </div>
-        </div>
-    `).join('') || '<p class="text-slate-500 text-sm">Nenhum script</p>';
+        `;
+    }).join('') || '<p class="text-slate-500 text-sm">Nenhum script</p>';
 }
+
+async function openOmScriptEditor(scriptId, filename, content) {
+    if (!currentOrgId) {
+        Toast.error('Selecione uma OM antes de editar scripts locais');
+        return;
+    }
+
+    const scriptMeta = await API.get('script', { id: scriptId });
+    if (!scriptMeta.success) {
+        Toast.error(scriptMeta.error || 'Erro ao carregar script');
+        return;
+    }
+
+    document.getElementById('edit-script-id').value = scriptMeta.data.id;
+    document.getElementById('edit-script-filename').value = filename || scriptMeta.data.filename || '';
+    document.getElementById('edit-script-name').value = scriptMeta.data.name || '';
+    document.getElementById('edit-script-description').value = scriptMeta.data.description || '';
+    document.getElementById('edit-script-content').value = content || scriptMeta.data.content || '';
+    document.getElementById('edit-script-changelog').value = '';
+    document.getElementById('edit-script-scope-preview').textContent = 'Escopo atual: OM Específica';
+    document.getElementById('edit-script-scope').value = 'om_specific';
+    document.getElementById('edit-script-scope-group').style.display = 'none';
+    document.getElementById('edit-script-name-group').style.display = 'none';
+    document.getElementById('edit-script-description-group').style.display = 'none';
+    document.getElementById('edit-script-changelog-group').style.display = 'block';
+    document.getElementById('edit-script-submit-btn').textContent = 'Salvar Override Local';
+    document.getElementById('edit-script-modal-title').textContent = `Editar Script OM: ${filename || scriptMeta.data.filename || 'Script'}`;
+    document.getElementById('edit-script-form').onsubmit = saveOmScriptOverride;
+    openModal('modal-edit-script');
+}
+window.openOmScriptEditor = openOmScriptEditor;
+
+async function saveOmScriptOverride(event) {
+    event.preventDefault();
+    const scriptId = Number(document.getElementById('edit-script-id').value);
+    const content = document.getElementById('edit-script-content').value;
+    const changelog = document.getElementById('edit-script-changelog').value.trim();
+
+    if (!scriptId || !content.trim()) {
+        Toast.error('Conteudo do script obrigatorio');
+        return;
+    }
+
+    const res = await API.post('save-script-om-version', {
+        script_id: scriptId,
+        organization_id: Number(currentOrgId),
+        content,
+        execution_order: 0,
+        is_active: true,
+        changelog
+    });
+
+    if (!res.success) {
+        Toast.error(res.error || 'Erro ao salvar override local');
+        return;
+    }
+
+    Toast.success(res.message || 'Override local salvo com sucesso');
+    closeModal('modal-edit-script');
+    loadOrgScripts(currentOrgId);
+}
+window.saveOmScriptOverride = saveOmScriptOverride;
+
+async function toggleLocalScript(scriptId, nextState) {
+    const res = await API.get('get-org-scripts', { organization_id: currentOrgId });
+    if (!res.success) {
+        Toast.error(res.error || 'Erro ao carregar status do script');
+        return;
+    }
+
+    const script = (res.data || []).find(item => Number(item.id) === Number(scriptId));
+    const payload = {
+        script_id: Number(scriptId),
+        organization_id: Number(currentOrgId),
+        content: script?.content || '',
+        execution_order: Number(script?.execution_order || 0),
+        is_active: Boolean(nextState),
+        changelog: `Ativacao local: ${nextState ? 'ativo' : 'inativo'}`
+    };
+
+    const saveRes = await API.post('save-script-om-version', payload);
+    if (!saveRes.success) {
+        Toast.error(saveRes.error || 'Erro ao alternar script local');
+        return;
+    }
+
+    Toast.success(nextState ? 'Script ativado localmente' : 'Script desativado localmente');
+    loadOrgScripts(currentOrgId);
+}
+window.toggleLocalScript = toggleLocalScript;
+
+async function moveOrgScriptOrder(scriptId, delta) {
+    const res = await API.get('get-org-scripts', { organization_id: currentOrgId });
+    if (!res.success) return;
+
+    const scripts = (res.data || []).filter(item => item.is_core || !item.is_core).sort((a, b) => Number(a.execution_order || 0) - Number(b.execution_order || 0));
+    const index = scripts.findIndex(item => Number(item.id) === Number(scriptId));
+    if (index < 0) return;
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= scripts.length) return;
+
+    const target = scripts[nextIndex];
+    const current = scripts[index];
+    const currentOrder = Number(current.execution_order || 0);
+    const targetOrder = Number(target.execution_order || 0);
+
+    const currentUpdate = await API.post('save-script-om-version', {
+        script_id: Number(current.id),
+        organization_id: Number(currentOrgId),
+        content: current.content || '',
+        execution_order: targetOrder,
+        is_active: Boolean(current.is_active),
+        changelog: 'Reordenacao local'
+    });
+    const targetUpdate = await API.post('save-script-om-version', {
+        script_id: Number(target.id),
+        organization_id: Number(currentOrgId),
+        content: target.content || '',
+        execution_order: currentOrder,
+        is_active: Boolean(target.is_active),
+        changelog: 'Reordenacao local'
+    });
+
+    if (!currentUpdate.success || !targetUpdate.success) {
+        Toast.error('Erro ao reordenar scripts locais');
+        return;
+    }
+
+    Toast.success('Ordem local atualizada');
+    loadOrgScripts(currentOrgId);
+}
+window.moveOrgScriptOrder = moveOrgScriptOrder;
+
+async function removeLocalScriptOverride(scriptId) {
+    if (!confirm('Deseja remover o override local deste script e voltar ao padrão do servidor?')) return;
+    const res = await API.post('delete-script-om-override', { script_id: Number(scriptId), organization_id: Number(currentOrgId) });
+    if (!res.success) {
+        Toast.error(res.error || 'Erro ao remover override local');
+        return;
+    }
+    Toast.success(res.message || 'Override local removido');
+    loadOrgScripts(currentOrgId);
+}
+window.removeLocalScriptOverride = removeLocalScriptOverride;
+
+async function restoreServerDefault(scriptId) {
+    await removeLocalScriptOverride(scriptId);
+}
+window.restoreServerDefault = restoreServerDefault;
 
 function switchScriptTab(type) {
     scriptTab = type;
