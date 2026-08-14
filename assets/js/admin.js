@@ -1678,10 +1678,10 @@ async function loadOrgScripts(orgId) {
             <table>
                 <thead>
                     <tr>
-                        <th>Ordem</th>
                         <th>Nome</th>
                         <th>Descricao</th>
-                        <th>Versao</th>
+                        <th>Ordem</th>
+                        <th>Versao Local</th>
                         <th>Status</th>
                         <th class="text-right">Acoes</th>
                     </tr>
@@ -1691,23 +1691,26 @@ async function loadOrgScripts(orgId) {
                         const badgeMeta = getOrgScriptBadgeMeta(s);
                         const statusBadgeClass = s.is_active ? 'badge-success' : 'badge-secondary';
                         const statusLabel = s.is_active ? 'Ativo' : 'Inativo';
-                        const restoreLabel = s.has_local_override ? 'Restaurar Default' : 'Usar Default do Servidor';
+                        const versionLabel = s.has_local_override ? `Local${s.version ? ` v${s.version}` : ''}` : badgeMeta.label;
                         return `
                             <tr>
-                                <td>${Number(s.execution_order || index + 1)}</td>
                                 <td>
                                     <div class="font-medium text-white">${Utils.escapeHtml(s.name || s.filename || 'Script')}</div>
                                     <div class="text-xs text-slate-400">${Utils.escapeHtml(s.filename || '')}</div>
                                 </td>
                                 <td>${Utils.escapeHtml(s.description || 'Sem descricao')}</td>
-                                <td><span class="badge ${badgeMeta.className}">${Utils.escapeHtml(badgeMeta.label)}</span></td>
-                                <td><span class="badge ${statusBadgeClass}">${statusLabel}</span></td>
+                                <td>${Number(s.execution_order || index + 1)}</td>
+                                <td><span class="badge ${badgeMeta.className}">${Utils.escapeHtml(versionLabel)}</span></td>
+                                <td>
+                                    <button class="btn ${s.is_active ? 'btn-success btn-sm' : 'btn-secondary btn-sm'}" onclick="toggleLocalScript(${s.id}, ${s.is_active ? 'false' : 'true'})">
+                                        ${statusLabel}
+                                    </button>
+                                </td>
                                 <td class="text-right">
                                     <div class="flex justify-end gap-2 flex-wrap">
                                         <button class="btn btn-secondary btn-sm" onclick="openOmScriptEditor(${s.id}, ${JSON.stringify(s.filename || '')}, ${JSON.stringify(s.content || '')}, ${JSON.stringify(s.name || '')}, ${JSON.stringify(s.description || '')})">Editar</button>
                                         <button class="btn btn-secondary btn-sm" onclick="openLocalScriptHistory(${s.id}, ${JSON.stringify(s.name || s.filename || 'Script')})">Histórico</button>
-                                        <button class="btn btn-danger btn-sm" onclick="restoreLocalScriptDefault(${s.id})">${restoreLabel}</button>
-                                        <button class="btn ${s.is_active ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="toggleLocalScript(${s.id}, ${s.is_active ? 'false' : 'true'})">${s.is_active ? 'Desativar' : 'Ativar'}</button>
+                                        <button class="btn btn-danger btn-sm" onclick="restoreLocalScriptDefault(${s.id})">Usar Default do Servidor</button>
                                     </div>
                                 </td>
                             </tr>
@@ -1715,6 +1718,9 @@ async function loadOrgScripts(orgId) {
                     }).join('') || '<tr><td colspan="6" class="text-slate-500 text-center py-4">Nenhum script</td></tr>'}
                 </tbody>
             </table>
+        </div>
+        <div class="mt-4 flex justify-end">
+            <button class="btn btn-secondary btn-sm" onclick="showOrgReorderModal()">Reordenar Scripts</button>
         </div>
     `;
 }
@@ -1888,6 +1894,126 @@ async function toggleLocalScript(scriptId, nextState) {
     loadOrgScripts(currentOrgId);
 }
 window.toggleLocalScript = toggleLocalScript;
+
+async function showOrgReorderModal() {
+    if (!currentOrgId) {
+        Toast.error('Selecione uma OM antes de reordenar os scripts');
+        return;
+    }
+
+    try {
+        const res = await API.get('get-org-scripts', { organization_id: currentOrgId });
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao carregar scripts da OM');
+            return;
+        }
+
+        const list = document.getElementById('reorder-script-list');
+        if (!list) return;
+
+        const scripts = [...(res.data || [])].sort((a, b) => (Number(a.execution_order || 0) - Number(b.execution_order || 0)) || (a.name || '').localeCompare(b.name || ''));
+        list.innerHTML = scripts.map((script, index) => `
+            <div class="reorder-item" data-id="${script.id}" data-order="${Number(script.execution_order || index + 1)}">
+                <span class="drag-handle">&#9776;</span>
+                <span class="order-number">${Number(script.execution_order || index + 1)}</span>
+                <span class="script-name">${Utils.escapeHtml(script.name || script.filename || 'Script')}</span>
+                <span class="text-slate-500 text-xs font-mono">${Utils.escapeHtml(script.filename || '')}</span>
+                <span class="script-badge ${script.source_type === 'local' ? 'core' : script.source_type === 'global' ? 'warning' : 'secondary'}">${Utils.escapeHtml(getOrgScriptBadgeMeta(script).label)}</span>
+            </div>
+        `).join('');
+
+        list.querySelectorAll('.reorder-item').forEach((item) => {
+            item.addEventListener('dragstart', handleDragStart);
+            item.addEventListener('dragover', handleDragOver);
+            item.addEventListener('drop', handleDrop);
+            item.addEventListener('dragend', handleDragEnd);
+        });
+
+        openModal('modal-reorder-scripts');
+    } catch (error) {
+        Toast.error('Erro ao abrir reordenacao local');
+    }
+}
+window.showOrgReorderModal = showOrgReorderModal;
+
+async function saveOrgScriptOrder() {
+    const items = document.querySelectorAll('#reorder-script-list .reorder-item');
+    const scripts = Array.from(items).map((item, index) => ({
+        id: parseInt(item.dataset.id, 10),
+        order: index + 1
+    }));
+
+    try {
+        const currentRes = await API.get('get-org-scripts', { organization_id: currentOrgId });
+        if (!currentRes.success) {
+            Toast.error(currentRes.error || 'Erro ao carregar scripts da OM');
+            return;
+        }
+
+        const results = await Promise.all(scripts.map(async (script) => {
+            const target = (currentRes.data || []).find(item => Number(item.id) === Number(script.id));
+            if (!target) return false;
+            return API.post('save-script-om-version', {
+                script_id: Number(script.id),
+                organization_id: Number(currentOrgId),
+                content: target.content || '',
+                execution_order: Number(script.order),
+                is_active: Boolean(target.is_active),
+                changelog: 'Reordenacao local'
+            });
+        }));
+
+        const failed = results.some(result => !result || !result.success);
+        if (failed) {
+            Toast.error('Falha ao salvar ordem local');
+            return;
+        }
+
+        Toast.success('Ordem local salva com sucesso');
+        closeModal('modal-reorder-scripts');
+        loadOrgScripts(currentOrgId);
+    } catch (error) {
+        Toast.error('Erro ao salvar ordem local');
+    }
+}
+window.saveOrgScriptOrder = saveOrgScriptOrder;
+
+async function resetOrgScriptOrder() {
+    if (!confirm('Deseja restaurar a ordem padrao da OM para os scripts?')) return;
+
+    try {
+        const res = await API.get('get-org-scripts', { organization_id: currentOrgId });
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao carregar scripts da OM');
+            return;
+        }
+
+        const scripts = res.data || [];
+        const results = await Promise.all(scripts.map(async (script) => {
+            if (!script.id) return false;
+            return API.post('save-script-om-version', {
+                script_id: Number(script.id),
+                organization_id: Number(currentOrgId),
+                content: script.content || '',
+                execution_order: Number(script.execution_order || 0),
+                is_active: Boolean(script.is_active),
+                changelog: 'Reset local da ordem'
+            });
+        }));
+
+        const failed = results.some(result => !result || !result.success);
+        if (failed) {
+            Toast.error('Falha ao restaurar ordem local');
+            return;
+        }
+
+        Toast.success('Ordem local restaurada');
+        showOrgReorderModal();
+    } catch (error) {
+        Toast.error('Erro ao restaurar ordem local');
+    }
+}
+window.resetOrgScriptOrder = resetOrgScriptOrder;
 
 async function moveOrgScriptOrder(scriptId, delta) {
     const res = await API.get('get-org-scripts', { organization_id: currentOrgId });
