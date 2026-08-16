@@ -1478,6 +1478,18 @@ function handleGenerateBundle($input) {
             $v['value'] = preg_replace('#^https?://#', '', $val);
         }
 
+        // SSH_GROUPS: remover espacos extras, garantir separacao por virgula, remover caracteres invalidos
+        if ($name === 'SSH_GROUPS') {
+            $cleaned = preg_replace('/[^a-zA-Z0-9,\-]/', ',', $val);
+            $parts = array_filter(array_map('trim', explode(',', $cleaned)), fn($p) => $p !== '');
+            $v['value'] = implode(',', $parts);
+        }
+
+        // HOMEPAGE: remover espacos nas extremidades e normalizar espacos internos (sem forcar protocolo)
+        if ($name === 'HOMEPAGE') {
+            $v['value'] = trim(preg_replace('/\s+/', ' ', $val));
+        }
+
         // Imagens: remover tripla barra e prefixar com SEEDER_SERVER se for relativa
         if (in_array($name, ['WALLPAPER_URL', 'WALLPAPER_LOGIN_URL', 'LOGO_URL', 'GREETER_URL'], true)) {
             // Remove http:/// ou https:/// (tripla barra)

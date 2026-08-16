@@ -179,9 +179,42 @@ const roleLabels = {
     'auditor': 'Auditor'
 };
 
+// ============ THEME TOGGLE ============
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const iconDark = document.getElementById('theme-icon-dark');
+    const iconLight = document.getElementById('theme-icon-light');
+    if (iconDark && iconLight) {
+        if (theme === 'light') {
+            iconDark.classList.add('hidden');
+            iconLight.classList.remove('hidden');
+        } else {
+            iconDark.classList.remove('hidden');
+            iconLight.classList.add('hidden');
+        }
+    }
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('seederlinux-theme', next);
+    applyTheme(next);
+}
+window.toggleTheme = toggleTheme;
+
+(function initTheme() {
+    const saved = localStorage.getItem('seederlinux-theme') || 'dark';
+    applyTheme(saved);
+})();
+
 // ============ INITIALIZATION ============
 
 document.addEventListener('DOMContentLoaded', async () => {
+    const savedTheme = localStorage.getItem('seederlinux-theme') || 'dark';
+    applyTheme(savedTheme);
+
     document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
     setupEventListeners();
 
