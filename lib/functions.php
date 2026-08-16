@@ -65,6 +65,10 @@ function isAuditor() {
     return isset($_SESSION['role']) && $_SESSION['role'] === 'auditor';
 }
 
+function isOperatorOm() {
+    return isset($_SESSION['role']) && $_SESSION['role'] === 'operador_om';
+}
+
 function getUserOrgId() {
     return $_SESSION['organization_id'] ?? null;
 }

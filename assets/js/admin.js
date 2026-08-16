@@ -365,7 +365,7 @@ function applyRolePermissions() {
 
     ['nav-audit'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.classList.toggle('hidden', role !== 'admin_gap' && role !== 'auditor');
+        if (el) el.classList.toggle('hidden', role !== 'admin_gap' && role !== 'auditor' && role !== 'operador_om');
     });
 }
 

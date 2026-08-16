@@ -1114,18 +1114,23 @@ function handleResetScriptOmDefault($input) {
     }
 
     Database::execute(
-        "DELETE FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+        "UPDATE om_script_versions
+         SET is_active = false,
+             version_id = NULL,
+             content = NULL
+         WHERE organization_id = ? AND script_id = ?",
         [$orgId, $scriptId]
     );
 
-    log_audit('DELETE', 'om_script_versions', $scriptId, [
+    log_audit('UPDATE', 'om_script_versions', $scriptId, [
         'action' => 'reset_om_default',
         'organization_id' => $orgId,
         'script_id' => $scriptId,
+        'is_active' => false,
         'author' => $_SESSION['username'] ?? 'system'
     ]);
 
-    jsonSuccess(null, 'Override local removido. Script volta a usar padrao do servidor');
+    jsonSuccess(['is_active' => false], 'Override local desativado. Script volta a usar o padrao do servidor');
 }
 
 function handleDeleteScriptOmOverride($input) {
@@ -1994,7 +1999,7 @@ function handleStationCheckin($input) {
 
 // AUDIT
 function handleGetAuditEvents() {
-    if (!isAdminGap() && !isAuditor()) jsonError('Sem permissao', 403);
+    if (!isAdminGap() && !isAuditor() && !isOperatorOm()) jsonError('Sem permissao', 403);
 
     try {
         // Paginação
@@ -2012,7 +2017,7 @@ function handleGetAuditEvents() {
         $where = "1=1";
         $params = [];
 
-        // Auditores veem apenas eventos da propria OM; admin_gap veja tudo
+        // Auditores e operadores OM veem apenas eventos da propria OM; admin_gap veja tudo
         if (!isAdminGap()) {
             $userOrgId = getUserOrgId();
             if ($userOrgId !== null) {
@@ -2771,7 +2776,11 @@ function handleResetToFactory($input) {
 
     if ($orgId) {
         Database::execute(
-            "DELETE FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+            "UPDATE om_script_versions
+             SET is_active = false,
+                 version_id = NULL,
+                 content = NULL
+             WHERE organization_id = ? AND script_id = ?",
             [$orgId, $scriptId]
         );
         Database::execute(
@@ -2783,14 +2792,18 @@ function handleResetToFactory($input) {
             [$factoryVersion['id'], $factoryVersion['content'], $scriptId]
         );
         log_audit('UPDATE', 'script_versions', $scriptId, ['action' => 'revert_factory', 'scope' => 'om_specific', 'organization_id' => $orgId, 'version' => $factoryVersion['version_number'], 'script_id' => $scriptId, 'author' => $_SESSION['username'] ?? 'system']);
-        jsonSuccess(null, 'OM revertida para versao de fabrica');
+        jsonSuccess(['is_active' => false], 'OM revertida para versao de fabrica');
     } else {
         Database::execute(
             "UPDATE script_versions SET is_active = false WHERE script_id = ? AND version_type IN ('gap_default', 'om_specific')",
             [$scriptId]
         );
         Database::execute(
-            "DELETE FROM om_script_versions WHERE script_id = ?",
+            "UPDATE om_script_versions
+             SET is_active = false,
+                 version_id = NULL,
+                 content = NULL
+             WHERE script_id = ?",
             [$scriptId]
         );
         Database::execute(
@@ -2798,7 +2811,7 @@ function handleResetToFactory($input) {
             [$factoryVersion['id'], $factoryVersion['content'], $scriptId]
         );
         log_audit('UPDATE', 'script_versions', $scriptId, ['action' => 'revert_factory', 'scope' => 'gap_default', 'version' => $factoryVersion['version_number'], 'script_id' => $scriptId, 'author' => $_SESSION['username'] ?? 'system']);
-        jsonSuccess(null, 'GAP revertido para versao de fabrica');
+        jsonSuccess(['is_active' => false], 'GAP revertido para versao de fabrica');
     }
 }
 
