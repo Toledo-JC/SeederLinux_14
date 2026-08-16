@@ -167,3 +167,33 @@ window.Toast = Toast;
 window.Utils = Utils;
 window.showToast = (message, type = 'success') => Toast.show(message, type);
 window.alert = (message) => Toast.show(message, 'warning');
+
+// ============ THEME TOGGLE (shared) ============
+
+function applyThemePublic(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const iconDark = document.getElementById('theme-icon-dark');
+    const iconLight = document.getElementById('theme-icon-light');
+    if (iconDark && iconLight) {
+        if (theme === 'light') {
+            iconDark.classList.add('hidden');
+            iconLight.classList.remove('hidden');
+        } else {
+            iconDark.classList.remove('hidden');
+            iconLight.classList.add('hidden');
+        }
+    }
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('seederlinux-theme', next);
+    applyThemePublic(next);
+}
+window.toggleTheme = toggleTheme;
+
+(function initThemePublic() {
+    const saved = localStorage.getItem('seederlinux-theme') || 'dark';
+    applyThemePublic(saved);
+})();

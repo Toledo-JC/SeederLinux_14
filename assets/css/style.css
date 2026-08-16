@@ -901,6 +901,15 @@ td {
 .form-textarea {
     min-height: 6rem;
     resize: vertical;
+    background: var(--bg-input);
+    color: var(--text);
+}
+
+.form-textarea[style*="background"],
+textarea[style*="background: #0a0f1a"],
+textarea[style*="background:#0a0f1a"] {
+    background: var(--bg-input) !important;
+    color: var(--text) !important;
 }
 
 .form-error {
@@ -1581,11 +1590,11 @@ td {
 .md\:grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
 .md\:grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
 .lg\:grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
-.text-white { color: #fff; }
-.text-slate-200 { color: #e2e8f0; }
-.text-slate-300 { color: #cbd5e1; }
-.text-slate-400 { color: #94a3b8; }
-.text-slate-500 { color: #64748b; }
+.text-white { color: var(--text); }
+.text-slate-200 { color: var(--text); }
+.text-slate-300 { color: var(--text-muted); }
+.text-slate-400 { color: var(--text-muted); }
+.text-slate-500 { color: var(--text-dim); }
 .text-blue-400 { color: #60a5fa; }
 .text-emerald-400 { color: #34d399; }
 .text-amber-400 { color: #fbbf24; }

@@ -1922,6 +1922,15 @@ function handleGetAuditEvents() {
         $where = "1=1";
         $params = [];
 
+        // Auditores veem apenas eventos da propria OM; admin_gap veja tudo
+        if (!isAdminGap()) {
+            $userOrgId = getUserOrgId();
+            if ($userOrgId !== null) {
+                $where .= " AND a.organization_id = ?";
+                $params[] = $userOrgId;
+            }
+        }
+
         if ($orgId) {
             $where .= " AND a.organization_id = ?";
             $params[] = $orgId;

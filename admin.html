@@ -397,6 +397,14 @@
                                 <tbody id="audit-tbody"></tbody>
                             </table>
                         </div>
+                        <div class="card-footer flex items-center justify-between mt-4" style="padding: 0 1.25rem 1.25rem;">
+                            <span id="audit-info" class="text-sm text-muted"></span>
+                            <div class="flex gap-2">
+                                <button id="audit-prev" class="btn btn-secondary btn-sm" onclick="auditChangePage(-1)">Anterior</button>
+                                <span id="audit-page-info" class="text-sm text-muted" style="align-self: center;"></span>
+                                <button id="audit-next" class="btn btn-secondary btn-sm" onclick="auditChangePage(1)">Próximo</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -563,7 +571,7 @@
                     <div><span class="text-slate-400 text-sm">Arquivo:</span> <span id="script-view-filename" class="text-sm"></span></div>
                     <div><span class="text-slate-400 text-sm">Core:</span> <span id="script-view-core" class="text-sm"></span></div>
                 </div>
-                <textarea id="script-view-content" class="form-input font-mono" rows="15" readonly style="background: #0a0f1a;"></textarea>
+                <textarea id="script-view-content" class="form-input font-mono" rows="15" readonly></textarea>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary modal-close" onclick="closeModal('modal-view-script')">Fechar</button>
@@ -604,7 +612,7 @@
                     <input type="hidden" id="edit-script-scope" value="gap_default">
                     <div class="form-group">
                         <label class="form-label">Conteudo</label>
-                        <textarea id="edit-script-content" class="form-input form-textarea font-mono" rows="16" style="background: #0a0f1a; min-height: 340px;"></textarea>
+                        <textarea id="edit-script-content" class="form-input form-textarea font-mono" rows="16" style="min-height: 340px;"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -631,7 +639,7 @@
                     </div>
                     <div>
                         <div class="mb-3 text-sm font-semibold text-slate-300">Conteudo</div>
-                        <textarea id="script-history-content" class="form-input form-textarea font-mono" rows="18" readonly style="background: #0a0f1a; min-height: 320px;"></textarea>
+                        <textarea id="script-history-content" class="form-input form-textarea font-mono" rows="18" readonly style="min-height: 320px;"></textarea>
                     </div>
                 </div>
             </div>
@@ -667,7 +675,7 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">Conteudo</label>
-                        <textarea id="new-script-content" class="form-input form-textarea font-mono" rows="10" style="background: #0a0f1a;"></textarea>
+                        <textarea id="new-script-content" class="form-input form-textarea font-mono" rows="10"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">

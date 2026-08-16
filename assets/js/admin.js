@@ -2528,20 +2528,25 @@ async function loadStations() {
 
 // ============ AUDIT ============
 
+let auditCurrentPage = 1;
+
 async function loadAuditEvents() {
-    const params = {};
+    const params = { page: auditCurrentPage, limit: 20 };
     const startDate = document.getElementById('audit-start-date')?.value;
     const endDate = document.getElementById('audit-end-date')?.value;
     if (startDate) params.start_date = startDate;
     if (endDate) params.end_date = endDate;
 
     const res = await API.get('audit', params);
-    if (!res.success) return;
+    if (!res.success) { Toast.error(res.error || 'Erro ao carregar auditoria'); return; }
+
+    const events = res.data?.events || [];
+    const pagination = res.data?.pagination || { total: 0, page: 1, pages: 1 };
 
     const el = document.getElementById('audit-tbody');
     if (!el) return;
 
-    el.innerHTML = res.data.length ? res.data.map(e => `
+    el.innerHTML = events.length ? events.map(e => `
         <tr>
             <td class="px-4 py-3">${Utils.formatDate(e.created_at)}</td>
             <td class="px-4 py-3">${Utils.escapeHtml(e.full_name || e.username || '-')}</td>
@@ -2550,8 +2555,28 @@ async function loadAuditEvents() {
             <td class="px-4 py-3">${Utils.escapeHtml(e.org_acronym || '-')}</td>
             <td class="px-4 py-3 text-slate-400 text-sm">${Utils.escapeHtml(e.details || '-')}</td>
         </tr>
-    `).join('') : '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhum evento</td></tr>';
+    `).join('') : '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhum evento de auditoria encontrado</td></tr>';
+
+    const infoEl = document.getElementById('audit-info');
+    if (infoEl) infoEl.textContent = `${pagination.total} evento(s)`;
+
+    const pageInfoEl = document.getElementById('audit-page-info');
+    if (pageInfoEl) pageInfoEl.textContent = `Pagina ${pagination.page} de ${pagination.pages}`;
+
+    const prevBtn = document.getElementById('audit-prev');
+    const nextBtn = document.getElementById('audit-next');
+    if (prevBtn) prevBtn.disabled = pagination.page <= 1;
+    if (nextBtn) nextBtn.disabled = pagination.page >= pagination.pages;
 }
+window.loadAuditEvents = loadAuditEvents;
+
+function auditChangePage(delta) {
+    const next = auditCurrentPage + delta;
+    if (next < 1) return;
+    auditCurrentPage = next;
+    loadAuditEvents();
+}
+window.auditChangePage = auditChangePage;
 
 // ============ ORG CRUD ============
 
