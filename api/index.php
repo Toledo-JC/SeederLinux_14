@@ -875,6 +875,53 @@ function ensureFactoryVersionForScript($scriptId) {
     return Database::fetchOne('SELECT id, version_number, content FROM script_versions WHERE id = ?', [$newVersionId]);
 }
 
+function resolveScriptSourceMetadataForOrg($orgId, $scriptId) {
+    $scriptId = (int)$scriptId;
+    $orgId = (int)$orgId;
+
+    $localRow = Database::fetchOne(
+        "SELECT osv.version_id, sv.version_number
+         FROM om_script_versions osv
+         LEFT JOIN script_versions sv ON sv.id = osv.version_id
+         WHERE osv.organization_id = ? AND osv.script_id = ? AND osv.is_active = true
+         ORDER BY osv.id DESC LIMIT 1",
+        [$orgId, $scriptId]
+    );
+
+    if ($localRow && !empty($localRow['version_id'])) {
+        return [
+            'source_type' => 'local',
+            'version_number' => (int)($localRow['version_number'] ?? 0),
+        ];
+    }
+
+    $gapRow = Database::fetchOne(
+        "SELECT version_number FROM script_versions
+         WHERE script_id = ? AND version_type = 'gap_default' AND is_active = true
+         ORDER BY version_number DESC LIMIT 1",
+        [$scriptId]
+    );
+
+    if ($gapRow) {
+        return [
+            'source_type' => 'gap_default',
+            'version_number' => (int)($gapRow['version_number'] ?? 0),
+        ];
+    }
+
+    $factoryRow = Database::fetchOne(
+        "SELECT version_number FROM script_versions
+         WHERE script_id = ? AND version_type = 'factory'
+         ORDER BY version_number DESC LIMIT 1",
+        [$scriptId]
+    );
+
+    return [
+        'source_type' => 'factory',
+        'version_number' => (int)($factoryRow['version_number'] ?? 0),
+    ];
+}
+
 function handleGetOrgScripts($orgId) {
     $orgId = (int)($orgId ?? 0);
     if (!$orgId) jsonError('organization_id obrigatorio', 400);
@@ -1539,57 +1586,13 @@ function handleGenerateBundle($input) {
     $scriptMetadata = [];
     foreach ($scripts as $index => $s) {
         $scriptId = (int)($s['id'] ?? 0);
-        $origin = 'factory';
-        $version = 0;
-
-        $localRow = Database::fetchOne(
-            "SELECT osv.version_id
-             FROM om_script_versions osv
-             WHERE osv.organization_id = ? AND osv.script_id = ? AND osv.is_active = true
-             ORDER BY osv.id DESC LIMIT 1",
-            [$orgId, $scriptId]
-        );
-
-        if ($localRow && !empty($localRow['version_id'])) {
-            $localVersion = Database::fetchOne(
-                "SELECT version_number FROM script_versions WHERE id = ? AND script_id = ?",
-                [$localRow['version_id'], $scriptId]
-            );
-            if ($localVersion) {
-                $origin = 'local';
-                $version = (int)($localVersion['version_number'] ?? 0);
-            }
-        }
-
-        if ($version === 0 && $origin !== 'local') {
-            $gapRow = Database::fetchOne(
-                "SELECT version_number FROM script_versions
-                 WHERE script_id = ? AND version_type = 'gap_default' AND is_active = true
-                 ORDER BY version_number DESC LIMIT 1",
-                [$scriptId]
-            );
-            if ($gapRow) {
-                $origin = 'gap_default';
-                $version = (int)($gapRow['version_number'] ?? 0);
-            } else {
-                $factoryRow = Database::fetchOne(
-                    "SELECT version_number FROM script_versions
-                     WHERE script_id = ? AND version_type = 'factory'
-                     ORDER BY version_number DESC LIMIT 1",
-                    [$scriptId]
-                );
-                if ($factoryRow) {
-                    $origin = 'factory';
-                    $version = (int)($factoryRow['version_number'] ?? 0);
-                }
-            }
-        }
+        $sourceMeta = resolveScriptSourceMetadataForOrg($orgId, $scriptId);
 
         $scriptMetadata[] = [
             'order' => $index + 1,
             'filename' => $s['filename'] ?? '',
-            'origin' => $origin,
-            'version' => $version,
+            'origin' => $sourceMeta['source_type'],
+            'version' => (int)($sourceMeta['version_number'] ?? 0),
         ];
     }
 

@@ -2540,8 +2540,9 @@ async function loadAuditEvents() {
     const res = await API.get('audit', params);
     if (!res.success) { Toast.error(res.error || 'Erro ao carregar auditoria'); return; }
 
-    const events = res.data?.events || [];
-    const pagination = res.data?.pagination || { total: 0, page: 1, pages: 1 };
+    const payload = res.data && typeof res.data === 'object' ? res.data : {};
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    const pagination = payload.pagination || { total: 0, page: 1, pages: 1 };
 
     const el = document.getElementById('audit-tbody');
     if (!el) return;
