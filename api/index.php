@@ -1478,9 +1478,35 @@ function handleGenerateBundle($input) {
             $v['value'] = preg_replace('#^https?://#', '', $val);
         }
 
+        // DC_IP_LIST: montar automaticamente a partir de DC_IP e DC_SECUNDARIO_IP
+        if ($name === 'DC_IP_LIST') {
+            $legacyValue = preg_replace('/\s+/', '', strtolower(trim((string)$val)));
+            $legacyDefaults = ['10.0.0.1,10.0.0.2', '10.0.0.2,10.0.0.1'];
+            $needsAutoBuild = $val === '' || in_array($legacyValue, $legacyDefaults, true);
+
+            if ($needsAutoBuild) {
+                $dcIp = '';
+                $dcSecIp = '';
+                foreach ($vars as $candidateVar) {
+                    if (($candidateVar['name'] ?? '') === 'DC_IP') {
+                        $dcIp = trim((string)($candidateVar['value'] ?? ''));
+                    }
+                    if (($candidateVar['name'] ?? '') === 'DC_SECUNDARIO_IP') {
+                        $dcSecIp = trim((string)($candidateVar['value'] ?? ''));
+                    }
+                }
+                $ipList = array_values(array_unique(array_filter([$dcIp, $dcSecIp], fn($ip) => $ip !== '')));
+                $v['value'] = implode(',', $ipList);
+            } else {
+                $parts = preg_split('/[\s,]+/', trim((string)$val));
+                $uniqueParts = array_values(array_unique(array_filter($parts, fn($ip) => $ip !== '')));
+                $v['value'] = implode(',', $uniqueParts);
+            }
+        }
+
         // SSH_GROUPS: remover espacos extras, garantir separacao por virgula, remover caracteres invalidos
         if ($name === 'SSH_GROUPS') {
-            $cleaned = preg_replace('/[^a-zA-Z0-9,\-]/', ',', $val);
+            $cleaned = preg_replace('/[^a-zA-Z0-9_,]/', '', $val);
             $parts = array_filter(array_map('trim', explode(',', $cleaned)), fn($p) => $p !== '');
             $v['value'] = implode(',', $parts);
         }
@@ -1505,7 +1531,71 @@ function handleGenerateBundle($input) {
     }
     unset($v);
 
-$bundle .= "# === VARIAVEIS ===\n";
+    $scriptMetadata = [];
+    foreach ($scripts as $index => $s) {
+        $scriptId = (int)($s['id'] ?? 0);
+        $origin = 'factory';
+        $version = 0;
+
+        $localRow = Database::fetchOne(
+            "SELECT osv.version_id
+             FROM om_script_versions osv
+             WHERE osv.organization_id = ? AND osv.script_id = ? AND osv.is_active = true
+             ORDER BY osv.id DESC LIMIT 1",
+            [$orgId, $scriptId]
+        );
+
+        if ($localRow && !empty($localRow['version_id'])) {
+            $localVersion = Database::fetchOne(
+                "SELECT version_number FROM script_versions WHERE id = ? AND script_id = ?",
+                [$localRow['version_id'], $scriptId]
+            );
+            if ($localVersion) {
+                $origin = 'local';
+                $version = (int)($localVersion['version_number'] ?? 0);
+            }
+        }
+
+        if ($version === 0 && $origin !== 'local') {
+            $gapRow = Database::fetchOne(
+                "SELECT version_number FROM script_versions
+                 WHERE script_id = ? AND version_type = 'gap_default' AND is_active = true
+                 ORDER BY version_number DESC LIMIT 1",
+                [$scriptId]
+            );
+            if ($gapRow) {
+                $origin = 'gap_default';
+                $version = (int)($gapRow['version_number'] ?? 0);
+            } else {
+                $factoryRow = Database::fetchOne(
+                    "SELECT version_number FROM script_versions
+                     WHERE script_id = ? AND version_type = 'factory'
+                     ORDER BY version_number DESC LIMIT 1",
+                    [$scriptId]
+                );
+                if ($factoryRow) {
+                    $origin = 'factory';
+                    $version = (int)($factoryRow['version_number'] ?? 0);
+                }
+            }
+        }
+
+        $scriptMetadata[] = [
+            'order' => $index + 1,
+            'filename' => $s['filename'] ?? '',
+            'origin' => $origin,
+            'version' => $version,
+        ];
+    }
+
+    $bundle .= "# === VARIAVEIS ===\n";
+    $bundle .= "# ============================================\n";
+    $bundle .= "# SCRIPTS INCLUÍDOS NESTE BUNDLE\n";
+    $bundle .= "# ============================================\n";
+    foreach ($scriptMetadata as $meta) {
+        $bundle .= "# {$meta['order']}. {$meta['filename']} | Origem: {$meta['origin']} | Versão: {$meta['version']}\n";
+    }
+    $bundle .= "# ============================================\n\n";
     $bundle .= "export NON_INTERACTIVE=true\n";
     foreach ($vars as $v) {
         if (in_array($v['type'], $skipExportTypes, true)) continue;

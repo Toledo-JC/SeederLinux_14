@@ -37,6 +37,10 @@ CONFIG_FILE="/etc/seederlinux/config.env"
 NTP_SERVER="${NTP_SERVER#http://}"
 NTP_SERVER="${NTP_SERVER#https://}"
 
+# Remover protocolo em valores vindos do bundle
+NTP_SERVER="${NTP_SERVER#http://}"
+NTP_SERVER="${NTP_SERVER#https://}"
+
 cat > "$CONFIG_FILE" <<EOF
 # SeederLinux Lite - Configuracao Persistente
 # NAO EDITAR MANUALMENTE - gerado pelo core_config.sh
