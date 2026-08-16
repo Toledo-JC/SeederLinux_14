@@ -1,17 +1,31 @@
-# SeederLinux
+# SeederLinux Lite
 
-O SeederLinux automatiza a preparação e a personalização de estações Linux para ambientes corporativos. Ele monta bundles de instalação a partir de scripts Bash, grava as configurações no PostgreSQL e disponibiliza a gestão pelo painel web.
+O SeederLinux Lite automatiza a preparação e a personalização de estações Linux para ambientes corporativos multi-organizacionais. Ele monta bundles de instalação a partir de scripts Bash, grava configurações no PostgreSQL e disponibiliza a gestão por meio de painel web.
 
 ## Stack
 
-- PHP para a API e o painel administrativo
-- PostgreSQL para organizações, variáveis e scripts
-- Bash para instalação e configuração das estações
-- HTML, CSS e JavaScript para as interfaces
+- PHP para API e painel administrativo
+- PostgreSQL para organizações, variáveis, scripts e auditoria
+- Bash para scripts de instalação e configuração das estações
+- HTML, CSS e JavaScript vanilla para as interfaces
+- Python para o agente de check-in das estações
+
+## Funcionalidades principais
+
+- Gestão de múltiplas organizações (OMs) com isolamento de dados
+- Catálogo de variáveis tipadas, com valores por organização
+- 22 scripts Core de provisionamento
+- Geração dinâmica de bundles com substituição de placeholders
+- Edição e versionamento de scripts Core
+- Overrides locais por OM com herança do padrão global
+- Reordenação e ativação/desativação de scripts por OM
+- Auditoria de ações administrativas
+- Modo de execução não interativo (`NON_INTERACTIVE`)
+- Sanitização de URLs, NTP, grupos SSH e assets
 
 ## Ordem oficial dos scripts
 
-O bundle executa os scripts nesta ordem. Os três scripts de sessão são condicionais: somente o correspondente ao display manager da estação é incluído no bundle final.
+O bundle inclui os 22 scripts Core na ordem abaixo. Os scripts de sessão (`core_session_*.sh`) são condicionais internamente: cada um verifica o display manager da estação e executa apenas o fluxo correspondente.
 
 | Ordem | Script | Responsabilidade |
 |---:|---|---|
@@ -66,7 +80,35 @@ Isso recria `install/insert_core_scripts.sql` com os 22 scripts e a ordem oficia
 3. Confira as variáveis obrigatórias, incluindo as senhas em base64 quando indicado pelo formulário.
 4. Gere e baixe o bundle.
 
-O sistema bloqueia a geração quando uma variável cadastrada deixa um placeholder obrigatório sem valor. Placeholders que aparecem apenas em comentários e não pertencem ao catálogo de variáveis são permitidos.
+O sistema sanitiza automaticamente valores críticos para evitar erros comuns, como protocolos indevidos em `NTP_SERVER` ou espaços extras em `SSH_GROUPS`. Placeholders sem valor geram avisos, mas não bloqueiam a geração do bundle.
+
+## Edição e versionamento de scripts
+
+A edição de scripts é separada por escopo:
+
+### Global — menu "Scripts Core"
+
+Disponível para administradores GAP. As alterações feitas aqui valem para todas as OMs que **não** possuem configuração local própria.
+
+- Salvar edição cria/ativa versão `gap_default`.
+- "Reverter para Fábrica" restaura a versão original `factory`.
+
+### Local — aba "Scripts Disponíveis" da OM
+
+Disponível para operadores da OM. As alterações feitas aqui valem apenas para aquela OM.
+
+- Salvar edição cria/ativa override em `om_script_versions`.
+- "Usar Default do Servidor" remove o override local e volta a herdar o global.
+- É possível alterar ordem, status e conteúdo por script.
+
+### Regra de precedência
+
+Ao gerar o bundle, o conteúdo efetivo de cada script segue a ordem:
+
+1. Override local da OM (`om_script_versions`)  
+2. Versão global `gap_default`  
+3. Versão de fábrica (`factory`)  
+4. Conteúdo base da tabela `scripts`
 
 ## Sincronizar scripts do GitHub
 
