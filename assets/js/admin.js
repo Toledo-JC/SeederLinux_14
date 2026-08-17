@@ -1614,6 +1614,7 @@ async function openScriptHistory(scriptId, scriptName) {
         }
 
         const ordered = [...versions].sort((a, b) => Number(b.version_number) - Number(a.version_number));
+        const canDelete = currentUser && currentUser.role === 'admin_gap';
         listEl.innerHTML = ordered.map(v => `
             <div class="p-3 bg-slate-900 rounded border border-slate-700">
                 <div class="flex items-center justify-between gap-3 mb-2">
@@ -1627,6 +1628,7 @@ async function openScriptHistory(scriptId, scriptName) {
                 <div class="flex gap-2">
                     <button class="btn btn-secondary btn-sm" onclick="previewScriptVersion(${scriptId}, ${v.id})">Visualizar</button>
                     ${v.version_type === 'factory' ? '' : `<button class="btn btn-primary btn-sm" onclick="activateScriptVersion(${scriptId}, ${v.id}, '${v.version_type}')">Ativar esta versão</button>`}
+                    ${(canDelete && v.version_type !== 'factory') ? `<button class="btn btn-danger btn-sm" onclick="deleteScriptVersion(${scriptId}, ${v.id})">Deletar</button>` : ''}
                 </div>
             </div>
         `).join('');
@@ -1681,6 +1683,25 @@ async function activateScriptVersion(scriptId, versionId, versionType) {
     }
 }
 window.activateScriptVersion = activateScriptVersion;
+
+async function deleteScriptVersion(scriptId, versionId) {
+    if (!confirm('Tem certeza que deseja deletar esta versão? Esta ação não pode ser desfeita.')) return;
+    try {
+        const res = await API.post('delete-script-version', {
+            script_id: Number(scriptId),
+            version_id: Number(versionId)
+        });
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao deletar versão');
+            return;
+        }
+        Toast.success(res.message || 'Versão deletada');
+        openScriptHistory(scriptId, document.getElementById('script-history-title').textContent.replace('Histórico: ', ''));
+    } catch (error) {
+        Toast.error('Erro ao deletar versão');
+    }
+}
+window.deleteScriptVersion = deleteScriptVersion;
 
 async function resetScriptToFactory(scriptId) {
     if (!confirm('Deseja reverter este script para a versão de fábrica?')) return;
@@ -1876,62 +1897,77 @@ async function saveOmScriptVersion(event) {
 window.saveOmScriptVersion = saveOmScriptVersion;
 
 let localHistoryContent = {};
+let localHistoryScriptId = null;
+let localHistoryOrgId = null;
 
 async function openLocalScriptHistory(scriptId) {
+    localHistoryScriptId = Number(scriptId);
+    localHistoryOrgId = Number(currentOrgId);
+
     try {
-        const res = await API.get('get-org-scripts', { organization_id: currentOrgId });
+        const res = await API.get('om-script-versions', {
+            script_id: localHistoryScriptId,
+            organization_id: localHistoryOrgId
+        });
         if (!res.success) {
             Toast.error(res.error || 'Erro ao carregar histórico da OM');
             return;
         }
 
-        const script = (res.data || []).find(item => Number(item.id) === Number(scriptId));
+        const script = res.data?.script || {};
+        const versions = res.data?.versions || [];
         const listEl = document.getElementById('script-history-list');
         const contentEl = document.getElementById('script-history-content');
         if (!listEl || !contentEl) return;
 
         const scriptName = script?.name || script?.filename || 'Script';
-        document.getElementById('script-history-title').textContent = `Histórico: ${scriptName}`;
+        document.getElementById('script-history-title').textContent = `Histórico Local: ${scriptName}`;
 
-        if (!script || !script.has_local_override) {
-            listEl.innerHTML = '<p class="text-slate-500 text-sm">Nenhum override local registrado para este script.</p>';
-            contentEl.value = script?.content || '';
+        if (!versions.length) {
+            listEl.innerHTML = '<p class="text-slate-500 text-sm">Nenhuma versão local registrada para este script.</p>';
+            contentEl.value = '';
             openModal('modal-script-history');
             return;
         }
 
-        const versionRows = [{
-            id: `${script.id}-local`,
-            version_name: 'Override Local',
-            version_number: 1,
-            version_type: 'local',
-            created_at: 'Atual',
-            created_by_username: 'OM',
-            changelog: 'Override da organização local',
-            content: script.content || '',
-            is_active: Boolean(script.is_active)
-        }];
-
         localHistoryContent = {};
-        versionRows.forEach(v => { localHistoryContent[v.id] = v.content || ''; });
+        versions.forEach(v => {
+            localHistoryContent[v.id] = v.content || '';
+        });
 
-        listEl.innerHTML = versionRows.map(v => `
-            <div class="p-3 bg-slate-900 rounded border border-slate-700">
-                <div class="flex items-center justify-between gap-3 mb-2">
-                    <div>
-                        <div class="font-medium text-white">${Utils.escapeHtml(v.version_name || 'Override Local')}</div>
-                        <div class="text-xs text-slate-400">${Utils.escapeHtml(v.created_at || '')} • ${Utils.escapeHtml(v.created_by_username || 'OM')}</div>
+        const canDelete = currentUser && currentUser.role === 'admin_gap';
+
+        listEl.innerHTML = versions.map(v => {
+            const isActive = Boolean(v.is_active);
+            const statusBadge = isActive
+                ? '<span class="badge badge-success">Ativa</span>'
+                : '<span class="badge badge-secondary">Inativa</span>';
+            const reactivateBtn = isActive
+                ? ''
+                : `<button class="btn btn-primary btn-sm" onclick="reactivateLocalVersion(${v.id})">Reativar</button>`;
+            const deleteBtn = canDelete
+                ? `<button class="btn btn-danger btn-sm" onclick="deleteLocalVersion(${v.id})">Deletar</button>`
+                : '';
+            return `
+                <div class="p-3 bg-slate-900 rounded border border-slate-700">
+                    <div class="flex items-center justify-between gap-3 mb-2">
+                        <div>
+                            <div class="font-medium text-white">v${Number(v.version_number || 0)}</div>
+                            <div class="text-xs text-slate-400">${Utils.escapeHtml(v.created_at || '')}</div>
+                        </div>
+                        ${statusBadge}
                     </div>
-                    <span class="badge badge-success">Local</span>
+                    <div class="flex gap-2 mt-2">
+                        <button class="btn btn-secondary btn-sm" onclick="previewLocalVersion(${v.id})">Visualizar</button>
+                        ${reactivateBtn}
+                        ${deleteBtn}
+                    </div>
                 </div>
-                <div class="text-xs text-slate-400 mb-2">${Utils.escapeHtml(v.changelog || 'Sem changelog')}</div>
-                <div class="flex gap-2">
-                    <button class="btn btn-secondary btn-sm" onclick="previewLocalVersion('${v.id}')">Visualizar</button>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
-        contentEl.value = script.content || '';
+        const activeVersion = versions.find(v => Boolean(v.is_active)) || versions[0];
+        contentEl.value = activeVersion?.content || '';
         openModal('modal-script-history');
     } catch (error) {
         Toast.error('Erro ao abrir histórico do script local');
@@ -1939,11 +1975,50 @@ async function openLocalScriptHistory(scriptId) {
 }
 window.openLocalScriptHistory = openLocalScriptHistory;
 
-window.previewLocalVersion = function(versionKey) {
+window.previewLocalVersion = function(versionId) {
     const contentEl = document.getElementById('script-history-content');
     if (!contentEl) return;
-    contentEl.value = localHistoryContent[versionKey] || '';
+    contentEl.value = localHistoryContent[versionId] || '';
 };
+
+async function reactivateLocalVersion(versionId) {
+    try {
+        const res = await API.post('reactivate-om-version', {
+            version_id: Number(versionId),
+            organization_id: localHistoryOrgId,
+            script_id: localHistoryScriptId
+        });
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao reativar versão');
+            return;
+        }
+        Toast.success(res.message || 'Versão reativada');
+        openLocalScriptHistory(localHistoryScriptId);
+    } catch (error) {
+        Toast.error('Erro ao reativar versão');
+    }
+}
+window.reactivateLocalVersion = reactivateLocalVersion;
+
+async function deleteLocalVersion(versionId) {
+    if (!confirm('Tem certeza que deseja deletar esta versão? Esta ação não pode ser desfeita.')) return;
+    try {
+        const res = await API.post('delete-om-version', {
+            version_id: Number(versionId),
+            organization_id: localHistoryOrgId,
+            script_id: localHistoryScriptId
+        });
+        if (!res.success) {
+            Toast.error(res.error || 'Erro ao deletar versão');
+            return;
+        }
+        Toast.success(res.message || 'Versão deletada');
+        openLocalScriptHistory(localHistoryScriptId);
+    } catch (error) {
+        Toast.error('Erro ao deletar versão');
+    }
+}
+window.deleteLocalVersion = deleteLocalVersion;
 
 async function toggleLocalScript(scriptId, nextState) {
     const res = await API.get('get-org-scripts', { organization_id: currentOrgId });

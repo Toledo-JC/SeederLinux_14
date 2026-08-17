@@ -157,6 +157,21 @@ try {
             if ($method !== 'POST') jsonError('Method not allowed', 405);
             handleDeleteScriptOmOverride($input);
             break;
+        case 'om-script-versions':
+            requireAuth();
+            if ($method !== 'GET') jsonError('Method not allowed', 405);
+            handleGetOmScriptVersions($_GET);
+            break;
+        case 'reactivate-om-version':
+            requireAuth();
+            if ($method !== 'POST') jsonError('Method not allowed', 405);
+            handleReactivateOmVersion($input);
+            break;
+        case 'delete-om-version':
+            requireAuth();
+            if ($method !== 'POST') jsonError('Method not allowed', 405);
+            handleDeleteOmVersion($input);
+            break;
         case 'get-org-scripts':
             requireAuth();
             if ($method !== 'GET') jsonError('Method not allowed', 405);
@@ -301,6 +316,11 @@ try {
             requireAuth();
             if ($method !== 'POST') jsonError('Method not allowed', 405);
             handleResetToFactory($input);
+            break;
+        case 'delete-script-version':
+            requireAuth();
+            if ($method !== 'POST') jsonError('Method not allowed', 405);
+            handleDeleteScriptVersion($input);
             break;
 
         default:
@@ -1119,35 +1139,37 @@ function handleSaveScriptOmVersion($input) {
     $effectiveContent = $content !== '' ? $content : ($script['content'] ?? '');
     $targetOrder = $executionOrder > 0 ? $executionOrder : (int)($script['execution_order'] ?? 0);
 
-    $existingOverride = Database::fetchOne(
-        "SELECT id FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+    // Deactivate existing active versions for this org/script
+    Database::execute(
+        "UPDATE om_script_versions SET is_active = false WHERE organization_id = ? AND script_id = ?",
         [$orgId, $scriptId]
     );
 
-    if ($existingOverride) {
-        Database::execute(
-            "UPDATE om_script_versions SET content = ?, execution_order = ?, is_active = ?, created_at = CURRENT_TIMESTAMP
-             WHERE organization_id = ? AND script_id = ?",
-            [$effectiveContent, $targetOrder, $isActive ? TRUE : FALSE, $orgId, $scriptId]
-        );
-    } else {
-        Database::execute(
-            "INSERT INTO om_script_versions (organization_id, script_id, content, execution_order, is_active)
-             VALUES (?, ?, ?, ?, ?)",
-            [$orgId, $scriptId, $effectiveContent, $targetOrder, $isActive ? TRUE : FALSE]
-        );
-    }
+    // Compute next version number
+    $maxV = Database::fetchOne(
+        "SELECT COALESCE(MAX(version_number), 0) AS max_v FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+        [$orgId, $scriptId]
+    );
+    $nextV = (int)$maxV['max_v'] + 1;
+
+    // Insert new version row (preserving history)
+    Database::execute(
+        "INSERT INTO om_script_versions (organization_id, script_id, content, execution_order, is_active, version_number, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+        [$orgId, $scriptId, $effectiveContent, $targetOrder, $isActive ? TRUE : FALSE, $nextV]
+    );
 
     log_audit('UPDATE', 'om_script_versions', $scriptId, [
         'action' => 'save_om_override',
         'organization_id' => $orgId,
         'script_id' => $scriptId,
+        'version_number' => $nextV,
         'is_active' => $isActive,
         'execution_order' => $targetOrder,
         'author' => $_SESSION['username'] ?? 'system'
     ]);
 
-    jsonSuccess(['execution_order' => $targetOrder, 'is_active' => $isActive], 'Override local salvo com sucesso');
+    jsonSuccess(['version_number' => $nextV, 'execution_order' => $targetOrder, 'is_active' => $isActive], 'Override local salvo com sucesso');
 }
 
 function handleResetScriptOmDefault($input) {
@@ -1161,11 +1183,10 @@ function handleResetScriptOmDefault($input) {
         jsonError('Sem permissao', 403);
     }
 
+    // Only deactivate — do NOT null content or version_id, so history is preserved
     Database::execute(
         "UPDATE om_script_versions
-         SET is_active = false,
-             version_id = NULL,
-             content = NULL
+         SET is_active = false
          WHERE organization_id = ? AND script_id = ?",
         [$orgId, $scriptId]
     );
@@ -1183,6 +1204,111 @@ function handleResetScriptOmDefault($input) {
 
 function handleDeleteScriptOmOverride($input) {
     jsonError('Endpoint descontinuado. Use reset-script-om-default', 410);
+}
+
+function handleGetOmScriptVersions($params) {
+    $scriptId = (int)($params['script_id'] ?? 0);
+    $orgId = (int)($params['organization_id'] ?? 0);
+
+    if (!$scriptId || !$orgId) jsonError('script_id e organization_id obrigatorios', 400);
+
+    $userOrgId = getUserOrgId();
+    if ($userOrgId !== null && $userOrgId !== $orgId && !isAdminGap()) {
+        jsonError('Sem permissao', 403);
+    }
+
+    ensureOmScriptVersionSchema();
+
+    $versions = Database::fetchAll(
+        "SELECT id, version_number, content, execution_order, is_active, created_at
+         FROM om_script_versions
+         WHERE organization_id = ? AND script_id = ?
+         ORDER BY version_number DESC, created_at DESC",
+        [$orgId, $scriptId]
+    );
+
+    $script = Database::fetchOne('SELECT name, filename FROM scripts WHERE id = ?', [$scriptId]);
+
+    jsonSuccess([
+        'script' => $script,
+        'versions' => $versions
+    ]);
+}
+
+function handleReactivateOmVersion($input) {
+    $versionId = (int)($input['version_id'] ?? 0);
+    $orgId = (int)($input['organization_id'] ?? 0);
+    $scriptId = (int)($input['script_id'] ?? 0);
+
+    if (!$versionId || !$orgId || !$scriptId) {
+        jsonError('version_id, organization_id e script_id obrigatorios', 400);
+    }
+
+    $userOrgId = getUserOrgId();
+    if ($userOrgId !== null && $userOrgId !== $orgId && !isAdminGap()) {
+        jsonError('Sem permissao', 403);
+    }
+
+    $version = Database::fetchOne(
+        "SELECT id, content, execution_order FROM om_script_versions WHERE id = ? AND organization_id = ? AND script_id = ?",
+        [$versionId, $orgId, $scriptId]
+    );
+    if (!$version) jsonError('Versao nao encontrada', 404);
+
+    // Deactivate all other versions for this org/script
+    Database::execute(
+        "UPDATE om_script_versions SET is_active = false WHERE organization_id = ? AND script_id = ?",
+        [$orgId, $scriptId]
+    );
+
+    // Activate the selected version
+    Database::execute(
+        "UPDATE om_script_versions SET is_active = true WHERE id = ?",
+        [$versionId]
+    );
+
+    log_audit('UPDATE', 'om_script_versions', $scriptId, [
+        'action' => 'reactivate_om_version',
+        'organization_id' => $orgId,
+        'script_id' => $scriptId,
+        'version_id' => $versionId,
+        'author' => $_SESSION['username'] ?? 'system'
+    ]);
+
+    jsonSuccess(null, 'Versao local reativada com sucesso');
+}
+
+function handleDeleteOmVersion($input) {
+    if (!isAdminGap()) jsonError('Sem permissao: apenas admin_gap pode deletar versoes', 403);
+
+    $versionId = (int)($input['version_id'] ?? 0);
+    $orgId = (int)($input['organization_id'] ?? 0);
+    $scriptId = (int)($input['script_id'] ?? 0);
+
+    if (!$versionId || !$orgId || !$scriptId) {
+        jsonError('version_id, organization_id e script_id obrigatorios', 400);
+    }
+
+    $version = Database::fetchOne(
+        "SELECT id, is_active FROM om_script_versions WHERE id = ? AND organization_id = ? AND script_id = ?",
+        [$versionId, $orgId, $scriptId]
+    );
+    if (!$version) jsonError('Versao nao encontrada', 404);
+
+    Database::execute(
+        "DELETE FROM om_script_versions WHERE id = ?",
+        [$versionId]
+    );
+
+    log_audit('DELETE', 'om_script_versions', $scriptId, [
+        'action' => 'delete_om_version',
+        'organization_id' => $orgId,
+        'script_id' => $scriptId,
+        'version_id' => $versionId,
+        'author' => $_SESSION['username'] ?? 'system'
+    ]);
+
+    jsonSuccess(null, 'Versao local deletada');
 }
 
 function handleGetScript($id) {
@@ -2634,6 +2760,41 @@ function handleGetScriptVersions($scriptId) {
     jsonSuccess(['script' => $script, 'versions' => $versions]);
 }
 
+function handleDeleteScriptVersion($input) {
+    if (!isAdminGap()) jsonError('Sem permissao: apenas admin_gap pode deletar versoes', 403);
+
+    $versionId = (int)($input['version_id'] ?? 0);
+    $scriptId = (int)($input['script_id'] ?? 0);
+
+    if (!$versionId || !$scriptId) {
+        jsonError('version_id e script_id obrigatorios', 400);
+    }
+
+    $version = Database::fetchOne(
+        "SELECT id, version_type, is_active FROM script_versions WHERE id = ? AND script_id = ?",
+        [$versionId, $scriptId]
+    );
+    if (!$version) jsonError('Versao nao encontrada', 404);
+
+    if ($version['version_type'] === 'factory') {
+        jsonError('Versoes de fabrica nao podem ser deletadas', 403);
+    }
+
+    Database::execute(
+        "DELETE FROM script_versions WHERE id = ?",
+        [$versionId]
+    );
+
+    log_audit('DELETE', 'script_versions', $scriptId, [
+        'action' => 'delete_script_version',
+        'version_id' => $versionId,
+        'version_type' => $version['version_type'],
+        'author' => $_SESSION['username'] ?? 'system'
+    ]);
+
+    jsonSuccess(null, 'Versao global deletada');
+}
+
 function handleSyncScript($input) {
     if (!isAdminGap()) jsonError('Sem permissao', 403);
 
@@ -2781,9 +2942,7 @@ function handleResetToFactory($input) {
     if ($orgId) {
         Database::execute(
             "UPDATE om_script_versions
-             SET is_active = false,
-                 version_id = NULL,
-                 content = NULL
+             SET is_active = false
              WHERE organization_id = ? AND script_id = ?",
             [$orgId, $scriptId]
         );
@@ -2804,9 +2963,7 @@ function handleResetToFactory($input) {
         );
         Database::execute(
             "UPDATE om_script_versions
-             SET is_active = false,
-                 version_id = NULL,
-                 content = NULL
+             SET is_active = false
              WHERE script_id = ?",
             [$scriptId]
         );
