@@ -2622,7 +2622,7 @@ function handleGetScriptVersions($scriptId) {
 
     $versions = Database::fetchAll(
         "SELECT sv.id, sv.version_name, sv.version_number, sv.version_type, sv.changelog,
-                sv.is_active, sv.created_at, sv.organization_id,
+                sv.is_active, sv.created_at, sv.organization_id, sv.content,
                 u.username as created_by_username
          FROM script_versions sv
          LEFT JOIN users u ON u.id = sv.created_by

@@ -1875,6 +1875,8 @@ async function saveOmScriptVersion(event) {
 }
 window.saveOmScriptVersion = saveOmScriptVersion;
 
+let localHistoryContent = {};
+
 async function openLocalScriptHistory(scriptId) {
     try {
         const res = await API.get('get-org-scripts', { organization_id: currentOrgId });
@@ -1910,6 +1912,9 @@ async function openLocalScriptHistory(scriptId) {
             is_active: Boolean(script.is_active)
         }];
 
+        localHistoryContent = {};
+        versionRows.forEach(v => { localHistoryContent[v.id] = v.content || ''; });
+
         listEl.innerHTML = versionRows.map(v => `
             <div class="p-3 bg-slate-900 rounded border border-slate-700">
                 <div class="flex items-center justify-between gap-3 mb-2">
@@ -1921,7 +1926,7 @@ async function openLocalScriptHistory(scriptId) {
                 </div>
                 <div class="text-xs text-slate-400 mb-2">${Utils.escapeHtml(v.changelog || 'Sem changelog')}</div>
                 <div class="flex gap-2">
-                    <button class="btn btn-secondary btn-sm" onclick="previewLocalVersion(${scriptId}, ${JSON.stringify(v.content || '')})">Visualizar</button>
+                    <button class="btn btn-secondary btn-sm" onclick="previewLocalVersion('${v.id}')">Visualizar</button>
                 </div>
             </div>
         `).join('');
@@ -1934,10 +1939,10 @@ async function openLocalScriptHistory(scriptId) {
 }
 window.openLocalScriptHistory = openLocalScriptHistory;
 
-window.previewLocalVersion = function(scriptId, content) {
+window.previewLocalVersion = function(versionKey) {
     const contentEl = document.getElementById('script-history-content');
     if (!contentEl) return;
-    contentEl.value = content || '';
+    contentEl.value = localHistoryContent[versionKey] || '';
 };
 
 async function toggleLocalScript(scriptId, nextState) {
