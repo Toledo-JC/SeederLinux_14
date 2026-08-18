@@ -1010,17 +1010,10 @@ function handleGetOrgScripts($orgId) {
 
         if ($local) {
             $hasLocalOverride = true;
-            if ((bool)$local['is_active']) {
-                $sourceType = 'local';
-                $effectiveContent = $local['content'] ?? $effectiveContent;
-                $effectiveOrder = (int)($local['execution_order'] ?? $effectiveOrder);
-                $effectiveIsActive = true;
-            } else {
-                $sourceType = $gapDefault ? 'global' : 'factory';
-                $effectiveContent = $gapDefault['content'] ?? ($factory['content'] ?? $effectiveContent);
-                $effectiveOrder = $script['execution_order'] ?? $effectiveOrder;
-                $effectiveIsActive = true;
-            }
+            $sourceType = 'local';
+            $effectiveContent = $local['content'] ?? $effectiveContent;
+            $effectiveOrder = (int)($local['execution_order'] ?? $effectiveOrder);
+            $effectiveIsActive = true;
         } elseif ($gapDefault) {
             $sourceType = 'global';
             $effectiveContent = $gapDefault['content'] ?? $effectiveContent;
@@ -1467,21 +1460,26 @@ function handleCreateScriptVersion($input) {
     $newVersionId = (int)Database::lastInsertId();
 
     if ($scope === 'om_specific') {
-        $existing = Database::fetchOne(
-            "SELECT id FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+        ensureOmScriptVersionSchema();
+
+        $existingOrder = (int)($script['execution_order'] ?? 0);
+
+        Database::execute(
+            "UPDATE om_script_versions SET is_active = false WHERE organization_id = ? AND script_id = ?",
             [$orgId, $scriptId]
         );
-        if ($existing) {
-            Database::execute(
-                "UPDATE om_script_versions SET version_id = ? WHERE organization_id = ? AND script_id = ?",
-                [$newVersionId, $orgId, $scriptId]
-            );
-        } else {
-            Database::execute(
-                "INSERT INTO om_script_versions (organization_id, script_id, version_id) VALUES (?, ?, ?)",
-                [$orgId, $scriptId, $newVersionId]
-            );
-        }
+
+        $maxOsvV = Database::fetchOne(
+            "SELECT COALESCE(MAX(version_number), 0) AS max_v FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+            [$orgId, $scriptId]
+        );
+        $nextOsvV = (int)$maxOsvV['max_v'] + 1;
+
+        Database::execute(
+            "INSERT INTO om_script_versions (organization_id, script_id, version_id, content, execution_order, is_active, version_number, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, true, ?, ?, CURRENT_TIMESTAMP)",
+            [$orgId, $scriptId, $newVersionId, $content, $existingOrder, $nextOsvV, $userId]
+        );
     }
 
     $factoryLatest = Database::fetchOne(
@@ -2876,13 +2874,17 @@ function handleSetGapDefault($input) {
     );
     if (!$version) jsonError('Versao nao encontrada', 404);
 
+    if ($version['version_type'] === 'factory') {
+        jsonError('Versoes de fabrica nao podem ser ativadas como GAP default. Use reset-script-factory para reverter.', 403);
+    }
+
     Database::execute(
         "UPDATE script_versions SET is_active = false WHERE script_id = ? AND version_type = 'gap_default'",
         [$scriptId]
     );
 
     Database::execute(
-        "UPDATE script_versions SET version_type = 'gap_default', is_active = true WHERE id = ?",
+        "UPDATE script_versions SET is_active = true WHERE id = ?",
         [$versionId]
     );
 
@@ -2913,28 +2915,28 @@ function handleSetOmVersion($input) {
     );
     if (!$version) jsonError('Versao nao encontrada', 404);
 
-    $existing = Database::fetchOne(
-        "SELECT id FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
-        [$orgId, $scriptId]
-    );
-    if ($existing) {
-        Database::execute(
-            "UPDATE om_script_versions SET version_id = ? WHERE organization_id = ? AND script_id = ?",
-            [$versionId, $orgId, $scriptId]
-        );
-    } else {
-        Database::execute(
-            "INSERT INTO om_script_versions (organization_id, script_id, version_id) VALUES (?, ?, ?)",
-            [$orgId, $scriptId, $versionId]
-        );
-    }
+    ensureOmScriptVersionSchema();
+
+    $script = Database::fetchOne('SELECT execution_order FROM scripts WHERE id = ?', [$scriptId]);
 
     Database::execute(
-        "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [$versionId, $version['content'], $scriptId]
+        "UPDATE om_script_versions SET is_active = false WHERE organization_id = ? AND script_id = ?",
+        [$orgId, $scriptId]
     );
 
-    log_audit('UPDATE', 'script_versions', $scriptId, ['action' => 'activate_om_specific', 'version' => $version['version_number'], 'scope' => 'om_specific', 'organization_id' => $orgId, 'script_id' => $scriptId, 'author' => $_SESSION['username'] ?? 'system']);
+    $maxV = Database::fetchOne(
+        "SELECT COALESCE(MAX(version_number), 0) AS max_v FROM om_script_versions WHERE organization_id = ? AND script_id = ?",
+        [$orgId, $scriptId]
+    );
+    $nextV = (int)$maxV['max_v'] + 1;
+
+    Database::execute(
+        "INSERT INTO om_script_versions (organization_id, script_id, version_id, content, execution_order, is_active, version_number, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, true, ?, ?, CURRENT_TIMESTAMP)",
+        [$orgId, $scriptId, $versionId, $version['content'], (int)($script['execution_order'] ?? 0), $nextV, $_SESSION['user_id'] ?? null]
+    );
+
+    log_audit('UPDATE', 'om_script_versions', $scriptId, ['action' => 'activate_om_specific', 'version' => $version['version_number'], 'scope' => 'om_specific', 'organization_id' => $orgId, 'script_id' => $scriptId, 'author' => $_SESSION['username'] ?? 'system']);
     jsonSuccess(null, 'Versao da OM definida');
 }
 
