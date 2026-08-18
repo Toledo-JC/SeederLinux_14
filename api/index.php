@@ -857,6 +857,19 @@ function ensureOmScriptVersionSchema() {
     if (!in_array('version_number', $existing, true)) {
         Database::execute('ALTER TABLE om_script_versions ADD COLUMN version_number INTEGER NOT NULL DEFAULT 0');
     }
+    if (!in_array('created_by', $existing, true)) {
+        Database::execute('ALTER TABLE om_script_versions ADD COLUMN created_by INTEGER REFERENCES users(id)');
+    }
+
+    // Drop UNIQUE(organization_id, script_id) if it exists, to allow multiple versions
+    $uniqueConstraint = Database::fetchOne(
+        "SELECT constraint_name FROM information_schema.table_constraints
+         WHERE table_name = 'om_script_versions' AND constraint_type = 'UNIQUE'
+         AND constraint_name = 'om_script_versions_organization_id_script_id_key'"
+    );
+    if ($uniqueConstraint) {
+        Database::execute('ALTER TABLE om_script_versions DROP CONSTRAINT om_script_versions_organization_id_script_id_key');
+    }
 }
 
 function ensureFactoryVersionForScript($scriptId) {
@@ -968,8 +981,8 @@ function handleGetOrgScripts($orgId) {
         $local = Database::fetchOne(
             "SELECT content, execution_order, is_active, version_id
              FROM om_script_versions
-             WHERE organization_id = ? AND script_id = ?
-             LIMIT 1",
+             WHERE organization_id = ? AND script_id = ? AND is_active = true
+             ORDER BY id DESC LIMIT 1",
             [$orgId, $scriptId]
         );
 
@@ -1154,9 +1167,9 @@ function handleSaveScriptOmVersion($input) {
 
     // Insert new version row (preserving history)
     Database::execute(
-        "INSERT INTO om_script_versions (organization_id, script_id, content, execution_order, is_active, version_number, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-        [$orgId, $scriptId, $effectiveContent, $targetOrder, $isActive ? TRUE : FALSE, $nextV]
+        "INSERT INTO om_script_versions (organization_id, script_id, content, execution_order, is_active, version_number, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+        [$orgId, $scriptId, $effectiveContent, $targetOrder, $isActive ? TRUE : FALSE, $nextV, $_SESSION['user_id'] ?? null]
     );
 
     log_audit('UPDATE', 'om_script_versions', $scriptId, [
@@ -1220,10 +1233,12 @@ function handleGetOmScriptVersions($params) {
     ensureOmScriptVersionSchema();
 
     $versions = Database::fetchAll(
-        "SELECT id, version_number, content, execution_order, is_active, created_at
-         FROM om_script_versions
-         WHERE organization_id = ? AND script_id = ?
-         ORDER BY version_number DESC, created_at DESC",
+        "SELECT osv.id, osv.version_number, osv.content, osv.execution_order, osv.is_active, osv.created_at,
+                u.username as created_by_username
+         FROM om_script_versions osv
+         LEFT JOIN users u ON u.id = osv.created_by
+         WHERE osv.organization_id = ? AND osv.script_id = ?
+         ORDER BY osv.version_number DESC, osv.created_at DESC",
         [$orgId, $scriptId]
     );
 
@@ -1579,7 +1594,7 @@ function handleGenerateBundle($input) {
                     COALESCE(osv.execution_order, s.execution_order) AS execution_order,
                     COALESCE(osv.is_active, TRUE) AS om_is_active
              FROM scripts s
-             LEFT JOIN om_script_versions osv ON osv.organization_id = ? AND osv.script_id = s.id
+             LEFT JOIN om_script_versions osv ON osv.organization_id = ? AND osv.script_id = s.id AND osv.is_active = TRUE
              WHERE s.is_active = TRUE AND (s.is_core = TRUE OR s.organization_id = ?)
              AND COALESCE(osv.is_active, TRUE) = TRUE
              ORDER BY COALESCE(osv.execution_order, s.execution_order) ASC, s.name",
@@ -1594,7 +1609,7 @@ function handleGenerateBundle($input) {
                     COALESCE(osv.execution_order, s.execution_order) AS execution_order,
                     COALESCE(osv.is_active, TRUE) AS om_is_active
              FROM scripts s
-             LEFT JOIN om_script_versions osv ON osv.organization_id = ? AND osv.script_id = s.id
+             LEFT JOIN om_script_versions osv ON osv.organization_id = ? AND osv.script_id = s.id AND osv.is_active = TRUE
              WHERE s.is_active = TRUE AND (s.is_core = TRUE OR (s.id IN ($placeholders) AND s.organization_id = ?))
              AND COALESCE(osv.is_active, TRUE) = TRUE
              ORDER BY COALESCE(osv.execution_order, s.execution_order) ASC, s.name",

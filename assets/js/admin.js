@@ -1615,23 +1615,30 @@ async function openScriptHistory(scriptId, scriptName) {
 
         const ordered = [...versions].sort((a, b) => Number(b.version_number) - Number(a.version_number));
         const canDelete = currentUser && currentUser.role === 'admin_gap';
-        listEl.innerHTML = ordered.map(v => `
+        listEl.innerHTML = ordered.map(v => {
+            const isActive = Boolean(v.is_active);
+            const activeBadge = isActive ? ' <span class="badge badge-success">Ativa</span>' : '';
+            return `
             <div class="p-3 bg-slate-900 rounded border border-slate-700">
                 <div class="flex items-center justify-between gap-3 mb-2">
                     <div>
                         <div class="font-medium text-white">v${Number(v.version_number || 0)} • ${Utils.escapeHtml(v.version_name || 'Versão')}</div>
                         <div class="text-xs text-slate-400">${Utils.escapeHtml(v.created_at || '')} • ${Utils.escapeHtml(v.created_by_username || 'Sistema')}</div>
                     </div>
-                    <span class="badge badge-${v.version_type === 'factory' ? 'info' : v.version_type === 'gap_default' ? 'warning' : 'success'}">${Utils.escapeHtml(getScriptVersionLabel(v.version_type))}</span>
+                    <div class="flex gap-1">
+                        <span class="badge badge-${v.version_type === 'factory' ? 'info' : v.version_type === 'gap_default' ? 'warning' : 'success'}">${Utils.escapeHtml(getScriptVersionLabel(v.version_type))}</span>
+                        ${activeBadge}
+                    </div>
                 </div>
                 <div class="text-xs text-slate-400 mb-2">${Utils.escapeHtml(v.changelog || 'Sem changelog')}</div>
                 <div class="flex gap-2">
                     <button class="btn btn-secondary btn-sm" onclick="previewScriptVersion(${scriptId}, ${v.id})">Visualizar</button>
-                    ${v.version_type === 'factory' ? '' : `<button class="btn btn-primary btn-sm" onclick="activateScriptVersion(${scriptId}, ${v.id}, '${v.version_type}')">Ativar esta versão</button>`}
+                    ${(v.version_type === 'factory' || isActive) ? '' : `<button class="btn btn-primary btn-sm" onclick="activateScriptVersion(${scriptId}, ${v.id}, '${v.version_type}')">Ativar esta versão</button>`}
                     ${(canDelete && v.version_type !== 'factory') ? `<button class="btn btn-danger btn-sm" onclick="deleteScriptVersion(${scriptId}, ${v.id})">Deletar</button>` : ''}
                 </div>
             </div>
-        `).join('');
+            `;
+        }).join('');
 
         const latest = ordered[0];
         if (latest) {
@@ -1953,7 +1960,7 @@ async function openLocalScriptHistory(scriptId) {
                     <div class="flex items-center justify-between gap-3 mb-2">
                         <div>
                             <div class="font-medium text-white">v${Number(v.version_number || 0)}</div>
-                            <div class="text-xs text-slate-400">${Utils.escapeHtml(v.created_at || '')}</div>
+                            <div class="text-xs text-slate-400">${Utils.escapeHtml(v.created_at || '')} • ${Utils.escapeHtml(v.created_by_username || 'Sistema')}</div>
                         </div>
                         ${statusBadge}
                     </div>
