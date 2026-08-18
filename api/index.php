@@ -1482,16 +1482,18 @@ function handleCreateScriptVersion($input) {
         );
     }
 
-    $factoryLatest = Database::fetchOne(
-        "SELECT id, content FROM script_versions WHERE script_id = ? AND version_type = 'factory' ORDER BY version_number DESC LIMIT 1",
-        [$scriptId]
-    );
-    $currentContent = ($factoryLatest && $scope === 'gap_default' && empty($content)) ? $factoryLatest['content'] : $content;
+    if ($scope === 'gap_default') {
+        $factoryLatest = Database::fetchOne(
+            "SELECT id, content FROM script_versions WHERE script_id = ? AND version_type = 'factory' ORDER BY version_number DESC LIMIT 1",
+            [$scriptId]
+        );
+        $currentContent = ($factoryLatest && empty($content)) ? $factoryLatest['content'] : $content;
 
-    Database::execute(
-        "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [$newVersionId, $currentContent, $scriptId]
-    );
+        Database::execute(
+            "UPDATE scripts SET current_version_id = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [$newVersionId, $currentContent, $scriptId]
+        );
+    }
 
     log_audit('UPDATE', 'script_versions', $scriptId, [
         'action' => 'save_' . $scope,
